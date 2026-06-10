@@ -67,6 +67,11 @@ def set_location_rules(world):
     final_saga = int(world.options.final_saga.value)
     scrolls_req = int(world.options.time_scrolls_required.value)
     from .Items import TIME_SCROLL_ITEM
+    # Consumable-ingredient demand: a fusion item shared by N recipes (or feeding
+    # a chain) is consumed N times. A location consuming ingredient X requires
+    # state.has(X, demand[X]) — i.e. enough copies for every fusion that uses it.
+    # Sound (no softlock) and solvable (exactly demand[X] copies are in the pool).
+    _ing_demand = R.ingredient_demand()
 
     def has_scenario(state, scenario_index):
         return state.has(_scenario_unlock_item(scenario_index), player)
@@ -114,8 +119,10 @@ def set_location_rules(world):
                     # ingredient is a character: require its own rule
                     ok = ok and char_rule(state, canon, _seen)
                 else:
-                    # ingredient is a fusion item: require the AP item
-                    ok = ok and state.has(ingredient_item_name(canon), player)
+                    # consumable fusion item: require enough copies for all the
+                    # fusions that consume it (demand count), not just 1.
+                    need = max(1, _ing_demand.get(canon, 1))
+                    ok = ok and state.has(ingredient_item_name(canon), player, need)
             return ok
         return True
 

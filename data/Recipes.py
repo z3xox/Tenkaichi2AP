@@ -158,6 +158,44 @@ def starters() -> list[str]:
     return [c for c in data.CHARACTERS if c not in RECIPES]
 
 
+def ingredient_demand() -> dict:
+    """Fusion ITEMS are CONSUMED when fused (roster characters used as
+    ingredients are NOT consumed — having them unlocked is enough). To unlock
+    every fusion character once, each fusion-item ingredient must be supplied as
+    many times as it is consumed across all recipes — including transitively,
+    when a fusion result is itself an ingredient of another fusion (it must be
+    re-produced, consuming its fusion items again).
+
+    Returns {fusion_item_name: copies_needed}, counting ONLY fusion-item
+    ingredients. Roster-character ingredients are skipped (not consumed)."""
+    roster = set(data.CHARACTERS)
+    fusion_items = set(data.FUSION_ITEM_ADDR.keys())
+    demand: dict = {}
+
+    def add(result):
+        entry = RECIPES.get(result)
+        if not entry or entry[0] != "FUSION":
+            return
+        for ing in entry[1]:
+            canon = _canon(ing)
+            if canon in roster and canon in RECIPES and RECIPES[canon][0] == "FUSION":
+                # ingredient is itself a FUSION character -> must be re-fused,
+                # which re-consumes ITS fusion items (recurse).
+                add(canon)
+            elif canon in fusion_items:
+                # consumable fusion item -> count a copy
+                demand[canon] = demand.get(canon, 0) + 1
+            else:
+                # roster-character ingredient (starter or battle-unlock): NOT
+                # consumed, so it needs no extra copies. Skip.
+                pass
+
+    for result, (kind, _ings) in RECIPES.items():
+        if kind == "FUSION":
+            add(result)
+    return demand
+
+
 def validate() -> dict:
     """Check that every recipe result is in the roster and every ingredient
     resolves to either a fusion item or a roster character. Returns a report."""

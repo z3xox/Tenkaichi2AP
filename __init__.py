@@ -90,11 +90,24 @@ class BT2World(World):
                 continue
             pool.append(create_item(self, name))
 
-        # Fusion ingredients: one of each (progression).
-        # In "free" fusion mode they are still distributed (harmless), but logic
-        # doesn't require them; keeping them in pool preserves location count.
-        for name in FUSION_INGREDIENT_ITEMS:
-            pool.append(create_item(self, name))
+        # Fusion ingredients (consumable). Fusion ITEMS are used up when fused,
+        # so an ingredient shared by N recipes — or feeding a chain — must be
+        # supplied N times. ingredient_demand() computes copies needed to unlock
+        # every fusion character once (roster-character ingredients are NOT
+        # consumed, so they're excluded). In "free" mode logic doesn't require
+        # them, but we still place 1 each to preserve location count.
+        fusion_full = (int(self.options.fusion_logic.value) == 0)
+        if fusion_full:
+            from .data import Recipes as _R
+            demand = _R.ingredient_demand()
+            for name in FUSION_INGREDIENT_ITEMS:
+                canon = name[len("Ingredient: "):]
+                copies = max(1, demand.get(canon, 1))
+                for _ in range(copies):
+                    pool.append(create_item(self, name))
+        else:
+            for name in FUSION_INGREDIENT_ITEMS:
+                pool.append(create_item(self, name))
 
         # Time Scroll McGuffins (only when the goal involves them).
         from .Items import TIME_SCROLL_ITEM
