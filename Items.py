@@ -79,9 +79,13 @@ item_table.update(SHOP_ITEMS)
 
 # Classification helper
 _PROGRESSION = (set(SCENARIO_ITEMS) | set(FUSION_INGREDIENT_ITEMS)
-                | set(MCGUFFIN_ITEMS) | set(DRAGONBALL_ITEMS))
+                | set(MCGUFFIN_ITEMS) | set(DRAGONBALL_ITEMS)
+                | set(SHOP_ITEMS))  # Shop Restock GATES shop locations -> must be
+                                    # progression, or the generator treats the
+                                    # restock-gated shop slots as unreachable and
+                                    # fill fails (FillError: no more spots).
 _FILLER = set(FILLER_ITEMS)
-_USEFUL = set(SHOP_ITEMS)  # Shop Restock reveals more shop checks
+_USEFUL = set()
 
 
 def classify(name: str) -> ItemClassification:
