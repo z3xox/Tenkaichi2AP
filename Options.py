@@ -132,6 +132,35 @@ class FighterPool(Choice):
     default = 0
 
 
+class ShopChecks(Range):
+    """How many Item Shop purchase checks to add. The client takes over the
+    shop, hides all default items, and shows named check-items the player buys
+    to send checks. Each is detected by Zeni decreasing by that slot's unique
+    price (immune to AP item grants, which don't cost Zeni). 0 disables shop
+    checks. Capped at the number of confidently-named shop items (25)."""
+    display_name = "Shop Checks"
+    range_start = 0
+    range_end = 59
+    default = 50
+
+
+class ShopInitial(Range):
+    """How many shop checks are available from the start. The rest are revealed
+    by receiving Shop Restock items."""
+    display_name = "Shop Initial Slots"
+    range_start = 1
+    range_end = 59
+    default = 10
+
+
+class ShopRestockAmount(Range):
+    """How many additional shop checks each Shop Restock item reveals."""
+    display_name = "Shop Restock Amount"
+    range_start = 1
+    range_end = 25
+    default = 10
+
+
 @dataclass
 class BT2Options(PerGameCommonOptions):
     goal: Goal
@@ -145,3 +174,6 @@ class BT2Options(PerGameCommonOptions):
     difficulty_floor: DifficultyFloor
     randomize_fighters: RandomizeFighters
     fighter_pool: FighterPool
+    shop_checks: ShopChecks
+    shop_initial: ShopInitial
+    shop_restock_amount: ShopRestockAmount

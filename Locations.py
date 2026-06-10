@@ -65,12 +65,26 @@ WISH_LOCATION_NAME = "Make a Wish"
 WISH_LOCATIONS: dict[str, int] = {WISH_LOCATION_NAME: BT2_LOC_BASE + 0x3100}
 
 
+# ─── Shop check locations ────────────────────────────────────────────────────
+# Up to len(SHOP_CHECK_SLOTS) Item Shop purchase checks, NAMED after the item
+# shown in that slot (so hints reference the real item). The client shows the
+# matching item; buying it (Zeni drops by its unique price) sends the check.
+SHOP_LOCATIONS: dict[str, int] = {}
+SHOP_SLOT_ORDER: list[str] = []   # ordered list of shop location names
+for _i, (_cat, _item) in enumerate(C.SHOP_CHECK_SLOTS):
+    _loc = f"Shop: {_item}"
+    SHOP_LOCATIONS[_loc] = BT2_LOC_BASE + 0x4000 + _i
+    SHOP_SLOT_ORDER.append(_loc)
+SHOP_CHECK_COUNT = len(SHOP_LOCATIONS)
+
+
 # ─── Master table ────────────────────────────────────────────────────────────
 location_table: dict[str, int] = {}
 location_table.update(MISSION_LOCATIONS)
 location_table.update(CHARACTER_LOCATIONS)
 location_table.update(SECRET_UNLOCK_LOCATIONS)
 location_table.update(WISH_LOCATIONS)
+location_table.update(SHOP_LOCATIONS)
 
 
 def get_location_names() -> dict[str, int]:

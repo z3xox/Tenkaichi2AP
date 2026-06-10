@@ -25,7 +25,7 @@ ADDR_SCREEN_SUBTYPE   = 0x76BDD8   # (Screen Type: 0x08 = DA Navigation)
 ADDR_DA_SCENARIO      = 0x76BDF0   # current scenario index (read-only context)
 ADDR_DA_CHAPTER       = 0x76BDF4
 ADDR_DA_GAME_LEVEL    = 0x76BDF8
-ADDR_ZENI             = 0x000000   # [32-bit] Current Zeni -- TODO: confirm exact addr
+ADDR_ZENI             = 0x63383C   # [32-bit] Current Zeni -- CONFIRMED (write renders live)
 
 SCREEN_DA_MAP = 0x07               # safe-to-write value for DA flags
 
@@ -310,12 +310,20 @@ def battle_slot_addr(player: int, slot: int) -> int:
 # ─────────────────────────────────────────────
 SHOP_STOCK_BASE   = 0x00B05300
 SHOP_RECORD_STRIDE = 0x30
-SHOP_OFF_ITEM_ID  = 0x00   # item id (Health+1=0x243; ability ids step by 0x32)
-SHOP_OFF_TYPE     = 0x04   # category/subtype (0x34 / 0x36)
-SHOP_OFF_SLOT_IDX = 0x08   # sequential slot index 0,1,2,...
-SHOP_OFF_BASE999  = 0x14   # constant 0x3E7 (999)
-SHOP_OFF_PRICE    = 0x1C   # displayed price (CONFIRMED: 5000=0x1388, 10000=0x2710)
-SHOP_OFF_PRICE2   = 0x20   # secondary value (rises per slot)
+SHOP_OFF_ITEM_ID  = 0x00   # derived price-tier stepping value (NOT the selector)
+SHOP_OFF_TYPE     = 0x04   # derived display type/tier (NOT the selector)
+SHOP_OFF_ITEM_INDEX = 0x08 # ITEM CATALOG INDEX — the REAL item selector.
+                           # CONFIRMED: write index -> that catalog item renders
+                           # (idx 0 = Health +1, idx 5 = Health +6, ...).
+                           # (Was mislabeled "slot index"; it is the item index.)
+SHOP_OFF_SLOT_IDX = 0x08   # (alias kept for back-compat)
+SHOP_OFF_CATEGORY = 0x0C   # category/color: 0=ability(blue) 1=support(orange)
+                           # 2=fusion(purple) 3=secret(green). Invalid -> no icon.
+SHOP_OFF_STOCK    = 0x14   # stock available to buy (CONFIRMED; default 999=0x3E7)
+SHOP_OFF_BASE999  = 0x14   # (alias kept for back-compat)
+SHOP_OFF_PRICE    = 0x1C   # buy price (CONFIRMED: 5000=0x1388, 10000=0x2710)
+SHOP_OFF_RESALE   = 0x20   # resale value when selling (CONFIRMED)
+SHOP_OFF_PRICE2   = 0x20   # (alias kept for back-compat)
 SHOP_SCREEN_ID    = 0x05   # value of 0x76BDDC on the Item Shop menu
 
 # CRITICAL TIMING (confirmed by before/after dumps): the record table is
@@ -500,6 +508,11 @@ ADDR_DU_MATCHUP_P1 = 0x008CC2E0   # P1 char in DU matchup (WRITABLE, confirmed)
 #    Deterministic key: RNG(ap_seed + linear_mission_index).
 ADDR_DA_MATCHUP_P1_BASE = 0x008CC2E0   # player team, stride 0x14, FF-terminated
 ADDR_DA_MATCHUP_P2_BASE = 0x008CC344   # enemy team,  stride 0x14, FF-terminated
+#  Matchup slot fields (stride 0x14): +0x00 char ID, +0x0C COSTUME index.
+#  When changing a slot's character, the costume MUST be reset to 0 — a costume
+#  index the new character lacks crashes the loader (VIF FIFO assertion).
+#  CONFIRMED: Salza (id 100) + costume 5 -> crash; costume 0 -> loads fine.
+DA_MATCHUP_OFF_COSTUME = 0x0C
 DA_MATCHUP_SLOT_STRIDE  = 0x14
 DA_MATCHUP_TERMINATOR   = 0xFFFFFFFF
 ADDR_DA_CURRENT_SCENARIO = 0x76BDF0    # game scenario byte (0x17 gap before 0x18)
@@ -593,3 +606,147 @@ MAP_NODE_PORUNGA = 0x09CE   # Namek - Porunga
 def dragonball_unlocked_addr(n: int) -> int:
     """n is 0-based (0 = 1★ ... 6 = 7★). Returns the unlocked-flag address."""
     return DRAGONBALL_BASE + n * DRAGONBALL_STRIDE
+
+#  ── SHOP ITEM CATALOG (via +0x08 index) — CRACKED ──
+#  The +0x08 field on each shop record is an INDEX into the item catalog; the
+#  game resolves the item name/icon from it. CONFIRMED samples:
+#     idx 0=Health+1, 5=Health+6, 6=Health+7, 10=Health+11,
+#     idx 20=Ki+2, 50=Attack+13, 100=Blast+2, 150=Ultimate Blast+14.
+#  Catalog is organized in contiguous stat BLOCKS (each a +1,+2,+3... ladder),
+#  spanning at least 0..150+. So 150+ distinct valid items can be placed.
+#  To place an item: write its catalog index to record+0x08. Other fields
+#  (+0x00 price-tier value, +0x04 type) are derived display props that must stay
+#  consistent with the selected item, so only drive identity through +0x08.
+SHOP_CATALOG_SAMPLES = {
+    0: "Health +1", 5: "Health +6", 6: "Health +7", 10: "Health +11",
+    20: "Ki +2", 50: "Attack +13", 100: "Blast +2", 150: "Ultimate Blast +14",
+}
+SHOP_CATALOG_MAX = 150  # confirmed valid up to here (likely more)
+
+#  ── SHOP CONTROL — FULLY CRACKED ──
+#  The record table at 0x00B05300 (stride 0x30) is laid out BY CATALOG INDEX:
+#  record N is at 0x00B05300 + N*0x30, and its +0x08 holds catalog index N.
+#  The VISIBLE ability tab shows the +1 (block-start) of each of 9 stat blocks.
+#  To control a visible slot, edit the record AT THAT ITEM'S CATALOG INDEX:
+#    +0x08 = item (catalog index)  -> swaps which item shows  [CONFIRMED]
+#    +0x1C = price                 [CONFIRMED]
+#    +0x14 = stock                 [CONFIRMED]
+#    +0x0C = category/color        [CONFIRMED]
+#    +0x20 = resale                [CONFIRMED]
+#  CONFIRMED: editing record at idx 0 (0x00B05300) changes visible Health+1;
+#  editing record at idx 38 (0x00B05A20) changes visible Attack+1 -> Attack+13.
+#  The table REBUILDS FROM SOURCE on shop entry, so the client must RE-ASSERT
+#  its desired records every poll while screen==0x05 (Item Shop).
+#  Block-start catalog indices for the 9 visible ability slots (Health/Ki/Attack
+#  confirmed; remaining 6 to verify in-game):
+SHOP_VISIBLE_BLOCK_STARTS = {
+    "Health":          0,
+    "Ki":              19,
+    "Attack":          38,   # CONFIRMED (record 0x00B05A20)
+    # "Defense":       ?,    # TODO verify
+    # "Speed":         ?,
+    # "Equipment":     ?,
+    # "Blast 1":       ~98,
+    # "Blast 2":       ?,
+    # "Ultimate Blast": 137, # from UltBlast+14=150
+}
+def shop_record_addr(catalog_index: int, field: int = 0x00) -> int:
+    """Address of a shop record (by catalog index) and optional field offset."""
+    return SHOP_STOCK_BASE + catalog_index * SHOP_RECORD_STRIDE + field
+
+#  ── SHOP ROW VISIBILITY — CRACKED ──
+#  +0x04 is the SHOW-IN-SHOP marker:
+#     0x36 = item is DISPLAYED as a shop row
+#     0x34 = item is hidden (in catalog but not shown)
+#  CONFIRMED: setting a hidden item's +0x04 to 0x36 ADDS a visible row for it
+#  (Health+2, normally hidden, appeared as a new row). So ROW COUNT is fully
+#  controllable: mark items 0x36 to show, 0x34 to hide. A newly-shown row needs
+#  its price (+0x1C) set too (it defaulted to 0).
+#  The visible set is therefore just "every catalog record whose +0x04==0x36",
+#  in catalog order. To build the shop we want: set +0x04=0x36 + price + stock on
+#  the records we want shown, and 0x34 on the rest. Re-assert each poll (screen
+#  0x05) since the table rebuilds from source on entry.
+SHOP_MARKER_SHOWN  = 0x36   # +0x04 value that displays the row
+SHOP_MARKER_HIDDEN = 0x34   # +0x04 value that hides it
+
+#  ── SHOP — COMPLETE TAB/MARKER MAP (all confirmed) ──
+#  One big catalog table at 0x00B05300, stride 0x30, ~374+ records spanning 4
+#  tabs by index range and category (+0x0C):
+#     ability (cat 0): low indices (0..~175),  shown marker +0x04 = 0x36
+#     support (cat 1): ~176..~314,             shown marker +0x04 = 0x26
+#     fusion  (cat 2): ~315..~367,             shown marker +0x04 = 0x14
+#     secret  (cat 3): ~368..374+,             shown marker +0x04 = 0x0C
+#  UNIVERSAL HIDE: writing +0x04 = 0x00 hides ANY row regardless of category
+#  (CONFIRMED). So clearing the whole shop = write 0 to every record's +0x04.
+#  To SHOW a row, write that category's shown marker + set price (+0x1C),
+#  stock (+0x14), item (+0x08 = catalog index). Re-assert on shop entry (table
+#  rebuilds from source). Catalog ~0..374+; sweep ~400 to cover all.
+SHOP_CAT_SHOWN_MARKER = {0: 0x36, 1: 0x26, 2: 0x14, 3: 0x0C}  # by category
+SHOP_HIDE_MARKER = 0x00    # universal hide (any category)
+SHOP_CATALOG_SIZE = 400    # safe sweep upper bound (table ~374+)
+SHOP_OFF_CATEGORY2 = 0x0C  # category field (0=ability 1=support 2=fusion 3=secret)
+
+#  ── SHOP CHECK DISPENSER (design) ──
+#  Client takes over the shop: clears all rows, shows N check-items in the
+#  ability tab, each with a UNIQUE price so the Zeni-drop on purchase identifies
+#  which slot was bought. Zeni-drop (not quantity) is the signal -> immune to AP
+#  item grants (which don't cost Zeni).
+#  Per shop-check slot i (0-based):
+#    catalog index = SHOP_CHECK_CATALOG_START + i   (distinct ability items)
+#    price         = SHOP_CHECK_PRICE_BASE + i      (unique -> identifies slot)
+#    stock         = 1
+SHOP_CHECK_CATALOG_START = 0      # first ability catalog index to use
+SHOP_CHECK_PRICE_BASE    = 5000   # pre-discount base for slot 0. The Gold card
+                                  # halves it, so the player PAYS ~2500 for slot 0.
+SHOP_CHECK_PRICE_STEP    = 200    # pre-discount step; charged climbs by 100/slot
+                                  # (2500, 2600, 2700, ...). Wide enough that the
+                                  # discounted amounts stay unique (no rounding
+                                  # collisions) so the Zeni drop identifies the
+                                  # slot. slot i price = base + i*step.
+# Curated shop-check slots: (catalog_index, item_name). Derived from the
+# confirmed 19-per-block ladder: each stat block holds +1..+19 at contiguous
+# indices, anchored by multiple confirmed points:
+#   Health: start 0  (0=+1, 5=+6, 6=+7, 10=+11 confirmed)
+#   Ki:     start 19 (19=+1, 20=+2 confirmed)
+#   Attack: start 38 (38=+1, 50=+13 confirmed -> 37+N pattern)
+# Plus a couple of scattered confirmed items beyond the ladders. Each location
+# is named "Shop: <item>" so hints reference the actual item. Detection is by
+# unique price, so the displayed item is cosmetic to detection.
+def _ladder(stat, start, count=19):
+    return [(start + (n - 1), f"{stat} +{n}") for n in range(1, count + 1)]
+
+SHOP_CHECK_SLOTS = (
+    _ladder("Health", 0)
+    + _ladder("Ki", 19)
+    + _ladder("Attack", 38)
+    + [
+        (100, "Blast +2"),
+        (150, "Ultimate Blast +14"),
+    ]
+)
+SHOP_CHECK_MAX = len(SHOP_CHECK_SLOTS)  # 59
+ADDR_ZENI_CONFIRMED      = 0x63383C  # (== ADDR_ZENI) Zeni 32-bit, drop = purchase
+
+#  ── SHOP MEMBERSHIP (Member's Card) — controls visible item count ──
+#  The shop only displays a LIMITED number of items unless you hold the Gold
+#  Member's Card. A weak/no card caps visible rows (~4 per block observed);
+#  the Gold card unlocks the full shop. The client grants it so all check-items
+#  are visible. Structure mirrors other Z-Items: +0x00 unlocked bit0, +0x02 qty.
+ADDR_MEMBERS_CARD_GOLD        = 0x6334E8   # [bit0] unlocked
+ADDR_MEMBERS_CARD_GOLD_QTY    = 0x6334EA   # [16-bit] quantity
+
+#  ── Fighter randomizer: excluded characters ──
+#  Some characters crash a fight when spawned cold via the matchup block
+#  (likely transformation/form states whose required setup/params don't match a
+#  generic spawn). Apes are FINE (confirmed). These transformation-state forms
+#  are excluded from the randomizer pool by default. Refine via testing.
+FIGHTER_EXCLUDE_DEFAULT = [
+    20,   # Zarbon Post Transformation
+    27, 28, 29, 30,   # Frieza 1st/2nd/3rd/Final Form
+    41, 42, 43,       # Cell 1st/2nd/Perfect Form
+    62,   # Majin Buu (Pure Evil)
+    73,   # Cooler Final Form
+    79,   # Vegeta (Scouter)
+    126, 127,         # Vegeta (second form) / SSJ Vegeta (second form)
+    33, 34,           # Trunks (Sword) / SSJ Trunks (Sword)
+]

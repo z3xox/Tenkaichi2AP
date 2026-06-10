@@ -115,6 +115,17 @@ class BT2World(World):
         for name in DRAGONBALL_ITEM_NAMES:
             pool.append(create_item(self, name))
 
+        # Shop Restock items: enough to reveal all shop checks beyond the initial
+        # set. count = ceil((shop_checks - shop_initial) / restock_amount).
+        from .Items import SHOP_RESTOCK_ITEM
+        sc = int(self.options.shop_checks.value)
+        if sc > 0:
+            si = int(self.options.shop_initial.value)
+            ra = max(1, int(self.options.shop_restock_amount.value))
+            n_restock = max(0, -(-(sc - si) // ra))  # ceil division
+            for _ in range(n_restock):
+                pool.append(create_item(self, SHOP_RESTOCK_ITEM))
+
         # Fill the remaining locations with useful (ability) + filler (Zeni)
         # according to filler_ratio.
         total_locs = len(self.multiworld.get_unfilled_locations(self.player))
@@ -127,10 +138,21 @@ class BT2World(World):
         ability_names = list(ABILITY_ITEMS.keys())
         filler_names = list(FILLER_ITEMS.keys())
 
+        # Useful slots: ability stat-boosts (Attack/Ki/Defense/Speed/Blast/etc.)
         for i in range(n_useful):
             pool.append(create_item(self, ability_names[i % len(ability_names)]))
+
+        # Filler slots: a VARIED mix of Zeni AND scattered stat-boost items
+        # (Attack/Ki/Defense/Speed/Blast/Health), so filler isn't monotonous
+        # Zeni. ~40% Zeni, ~60% random stat boosts.
+        stat_filler = [n for n in ability_names if any(
+            s in n for s in ("Health +", "Ki +", "Attack +", "Defense +",
+                             "Speed +", "Blast"))]
         for i in range(n_filler):
-            pool.append(create_item(self, filler_names[i % len(filler_names)]))
+            if not stat_filler or self.random.random() < 0.4:
+                pool.append(create_item(self, self.random.choice(filler_names)))
+            else:
+                pool.append(create_item(self, self.random.choice(stat_filler)))
 
         self.multiworld.itempool.extend(pool)
 
@@ -152,5 +174,8 @@ class BT2World(World):
             "difficulty_floor": self.options.difficulty_floor.value,
             "randomize_fighters": self.options.randomize_fighters.value,
             "fighter_pool": self.options.fighter_pool.value,
+            "shop_checks": self.options.shop_checks.value,
+            "shop_initial": self.options.shop_initial.value,
+            "shop_restock_amount": self.options.shop_restock_amount.value,
             "seed": self.multiworld.seed_name,
         }

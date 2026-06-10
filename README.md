@@ -40,6 +40,7 @@ Dragon Adventure missions, character unlocks, secret what-if sagas, and Dragon B
   - *Beautiful Treachery* — clear Frieza Saga 00
   - *Destined Rivals* — clear Majin Buu Saga 01
 - **Make a Wish (1)** — reach Shenron or Porunga after gathering all 7 Dragon Balls
+- **Shop (up to 50)** - using "Shop Restock" grants 10 more items in the shop
 
 ## Items (250)
 - **Scenario unlocks (24)** — gate each Dragon Adventure scenario; received via the multiworld

@@ -241,6 +241,53 @@ class BT2Interface:
         cur = self.pine.read32(C.ADDR_ZENI)
         self.pine.write32(C.ADDR_ZENI, cur + amount)
 
+    # ── Shop control + Zeni purchase detection ──
+    def read_zeni(self) -> int:
+        return self.pine.read32(C.ADDR_ZENI)
+
+    def shop_clear_all(self, catalog_n: int = None):
+        """Universal clear: write 0 to every record's +0x04 (hides all rows,
+        any category). Done once on shop entry."""
+        n = catalog_n if catalog_n is not None else C.SHOP_CATALOG_SIZE
+        base = C.SHOP_STOCK_BASE
+        for idx in range(n):
+            try:
+                self.pine.write8(base + idx * C.SHOP_RECORD_STRIDE + 0x04, 0x00)
+            except Exception:
+                pass
+
+    def shop_show_row(self, catalog_index: int, price: int, stock: int = 1,
+                      category: int = 0):
+        """Show one row: set shown marker, item, price, stock."""
+        base = C.SHOP_STOCK_BASE + catalog_index * C.SHOP_RECORD_STRIDE
+        marker = C.SHOP_CAT_SHOWN_MARKER.get(category, 0x36)
+        try:
+            self.pine.write8(base + 0x04, marker)          # show marker
+            self.pine.write32(base + 0x08, catalog_index)  # item
+            self.pine.write32(base + 0x1C, price)          # unique price
+            self.pine.write16(base + 0x14, stock)          # stock
+        except Exception:
+            pass
+
+    def zero_item_owned(self, catalog_index: int):
+        """Zero the player's owned quantity of a catalog item so a shop stock of
+        1 yields exactly one buyable (the 'buyable' count is stock minus owned).
+        catalog index == ability-array slot; quantity is at +0x02."""
+        try:
+            addr = C.ABILITY_BASE + catalog_index * 4
+            self.pine.write16(addr + 0x02, 0)   # owned quantity -> 0
+        except Exception:
+            pass
+
+    def shop_grant_members_card(self):
+        """Grant the Gold Member's Card so the shop displays ALL items (a weak
+        card caps the visible item count)."""
+        try:
+            self.pine.write16(C.ADDR_MEMBERS_CARD_GOLD, 1)       # unlocked bit0
+            self.pine.write16(C.ADDR_MEMBERS_CARD_GOLD_QTY, 1)   # quantity
+        except Exception:
+            pass
+
     # ── Dragon Balls + Wish (RECORD) ──
     def read_dragonball_unlocked(self, n: int) -> bool:
         """n is 0-based (0=1★..6=7★). True if that ball is collected."""
@@ -337,10 +384,11 @@ class BT2Interface:
 
     def randomize_matchup(self, pick_fn, sides=("p1", "p2")):
         """Walk each requested team and write a randomized roster ID (from
-        pick_fn(slot_seq)) into every occupied slot. Writes ONLY the ID byte
-        (write8) so the slot's other params are preserved — this matches the
-        confirmed-working manual single-byte write. A 4-byte write would zero
-        the trailing params and crash the loader."""
+        pick_fn(slot_seq)) into every occupied slot. Writes the ID byte (write8)
+        AND resets the slot's COSTUME field (+0x0C) to 0, because the new
+        character may not have the original character's costume index, and an
+        invalid costume crashes the loader (confirmed: Salza + costume 5 -> VIF
+        FIFO crash; costume 0 loads fine). Other params are preserved."""
         bases = []
         if "p1" in sides:
             bases.append(C.ADDR_DA_MATCHUP_P1_BASE)
@@ -351,7 +399,11 @@ class BT2Interface:
         for base in bases:
             for slot_addr in self._team_slots(base):
                 new_id = pick_fn(seq) & 0xFF
-                self.pine.write8(slot_addr, new_id)  # ID byte only; preserve params
+                self.pine.write8(slot_addr, new_id)        # ID byte
+                try:
+                    self.pine.write8(slot_addr + 0x0C, 0)  # costume -> 0 (always valid)
+                except Exception:
+                    pass
                 written.append((slot_addr, new_id))
                 seq += 1
         if written:

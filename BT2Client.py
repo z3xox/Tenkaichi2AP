@@ -25,7 +25,7 @@ from .BT2Interface import BT2Interface
 from .data import Constants as C
 from .Items import (item_table, SCENARIO_ITEMS, FUSION_INGREDIENT_ITEMS,
                     ABILITY_ITEMS, FILLER_ITEMS, TIME_SCROLL_ITEM,
-                    DRAGONBALL_ITEM_NAMES)
+                    DRAGONBALL_ITEM_NAMES, SHOP_RESTOCK_ITEM)
 from .Locations import (location_table, MISSION_LOCATIONS, CHARACTER_LOCATIONS,
                         mission_meta, character_meta)
 
@@ -66,6 +66,18 @@ class BT2Context(CommonContext):
         self.goal = 1
         self.time_scrolls_required = 0
         self.final_saga = 20
+        # Shop dispenser
+        self.shop_checks = 0
+        self.shop_initial = 10
+        self.shop_restock_amount = 10
+        self.shop_restocks_received = 0
+        self._shop_cleared_this_visit = False
+        self._shop_prev_screen = None
+        self._zeni_last = None
+        self._pending_shop_checks: set = set()
+        self._shop_hint_pending: list = []   # shop loc names to auto-hint
+        self._shop_hinted: set = set()       # already-hinted shop locs
+        self._shop_owned_zeroed = False      # one-time: zero check-item owned qty
 
         # Fighter randomization (v2)
         self.randomize_fighters = 0     # 0=off,1=both,2=enemies,3=players
@@ -99,6 +111,9 @@ class BT2Context(CommonContext):
             self.goal = int(self.slot_data.get("goal", 1))
             self.time_scrolls_required = int(self.slot_data.get("time_scrolls_required", 0))
             self.final_saga = int(self.slot_data.get("final_saga", 20))
+            self.shop_checks = int(self.slot_data.get("shop_checks", 0))
+            self.shop_initial = int(self.slot_data.get("shop_initial", 10))
+            self.shop_restock_amount = int(self.slot_data.get("shop_restock_amount", 10))
             # Starting scenarios from slot_data (names) -> indices
             self._apply_starting_scenarios()
         elif cmd == "ReceivedItems":
@@ -145,6 +160,8 @@ class BT2Context(CommonContext):
             self.time_scrolls_received += 1
         elif name in DRAGONBALL_ITEM_NAMES:
             self.granted_dragonballs.add(DRAGONBALL_ITEM_NAMES.index(name))
+        elif name == SHOP_RESTOCK_ITEM:
+            self.shop_restocks_received += 1
 
 
 def _difficulty_ok(value: int, floor: int) -> bool:
@@ -207,6 +224,10 @@ async def game_watcher(ctx: BT2Context):
             # ── Fighter randomization (v2): detect new DA fight, randomize once ──
             if ctx.randomize_fighters:
                 _maybe_randomize_fighters(ctx)
+
+            # ── Shop check dispenser: take over the Item Shop (screen 0x05) ──
+            if ctx.shop_checks:
+                _service_shop(ctx, screen)
 
             # ── RECORD: missions ──
             missions = ctx.iface.read_all_missions()
@@ -282,11 +303,39 @@ async def game_watcher(ctx: BT2Context):
                 )
                 ctx._pending_secret_checks.clear()
 
+            # Merge earned shop purchase checks.
+            if ctx._pending_shop_checks:
+                new_checks.extend(
+                    lid for lid in ctx._pending_shop_checks
+                    if lid not in ctx.checked_locations
+                )
+                ctx._pending_shop_checks.clear()
+
             if new_checks:
                 await ctx.send_msgs([{
                     "cmd": "LocationChecks",
                     "locations": new_checks,
                 }])
+
+            # ── Auto-hint available shop checks (queued on shop entry) ──
+            if ctx._shop_hint_pending:
+                to_hint_ids = []
+                for loc_name in ctx._shop_hint_pending:
+                    if loc_name in ctx._shop_hinted:
+                        continue
+                    lid = location_table.get(loc_name)
+                    if lid is None or lid in ctx.checked_locations:
+                        continue
+                    to_hint_ids.append(lid)
+                    ctx._shop_hinted.add(loc_name)
+                ctx._shop_hint_pending = []
+                if to_hint_ids:
+                    # LocationScouts with create_as_hint=2 creates hints for these.
+                    await ctx.send_msgs([{
+                        "cmd": "LocationScouts",
+                        "locations": to_hint_ids,
+                        "create_as_hint": 2,
+                    }])
 
             # ── Victory: required scenarios fully complete ──
             await _check_victory(ctx, missions)
@@ -346,6 +395,97 @@ def _maybe_randomize_fighters(ctx: BT2Context):
     except Exception as e:
         logger.debug(f"[BT2] randomize error: {e}")
 
+
+def _service_shop(ctx: BT2Context, screen: int):
+    """Take over the Item Shop. Clear all rows each poll (the shop rebuilds from
+    source, so re-clearing keeps every tab empty), show the available NAMED
+    check-items at unique prices, detect purchases by Zeni DROP (immune to AP
+    grants), and queue auto-hints for the available shop checks on entry.
+    """
+    from .Locations import SHOP_SLOT_ORDER, location_table
+    iface = ctx.iface
+    SHOP_ID = 0x05
+
+    on_shop = (screen == SHOP_ID)
+    entering = on_shop and (ctx._shop_prev_screen != SHOP_ID)
+    ctx._shop_prev_screen = screen
+
+    if not on_shop:
+        ctx._zeni_last = None
+        return
+
+    n_total = min(ctx.shop_checks, len(SHOP_SLOT_ORDER))
+    available = min(
+        n_total,
+        ctx.shop_initial + ctx.shop_restocks_received * ctx.shop_restock_amount,
+    )
+
+    def slot_loc_id(i):
+        return location_table[SHOP_SLOT_ORDER[i]]
+
+    # A slot is "done" if its check is confirmed OR already detected this session
+    # (pending send). Both hide it immediately to prevent wasted re-purchases.
+    def slot_done(i):
+        lid = slot_loc_id(i)
+        return lid in ctx.checked_locations or lid in ctx._pending_shop_checks
+
+    # Show the unbought slots whose index is within the unlocked range
+    # [0, available). Slots beyond `available` are restock-gated and stay hidden
+    # until enough Shop Restock items are received. Bought/pending slots within
+    # range are simply not shown (they don't get replaced by gated ones).
+    to_show = [i for i in range(available) if i < n_total and not slot_done(i)]
+
+    # Clear the whole shop every poll (matches the proven PoC).
+    try:
+        iface.shop_grant_members_card()  # unlock full shop (weak card caps rows)
+        # One-time: zero owned qty of every check-item so a stock of 1 yields
+        # exactly one buyable (buyable = stock - owned). Without this, items the
+        # player already owns (e.g. starting Health +1) show 0 buyable.
+        if not ctx._shop_owned_zeroed:
+            for (cat_idx, _name) in C.SHOP_CHECK_SLOTS:
+                iface.zero_item_owned(cat_idx)
+            ctx._shop_owned_zeroed = True
+        iface.shop_clear_all()
+        if ctx._zeni_last is None:
+            ctx._zeni_last = iface.read_zeni()
+    except Exception:
+        return
+
+    # Re-assert shown rows: curated catalog index (named item) + unique price.
+    for i in to_show:
+        cat_idx, _item = C.SHOP_CHECK_SLOTS[i]
+        price = C.SHOP_CHECK_PRICE_BASE + i * C.SHOP_CHECK_PRICE_STEP
+        iface.shop_show_row(cat_idx, price, stock=1, category=0)
+
+    # Queue auto-hints for the available (shown) shop checks, once on entry.
+    if entering:
+        ctx._shop_hint_pending = [SHOP_SLOT_ORDER[i] for i in to_show
+                                  if slot_loc_id(i) not in ctx.checked_locations]
+
+    # Purchase detection via Zeni drop.
+    # The client always grants the Gold Member's Card, which applies a ~50%
+    # discount, so the actual Zeni drop is the DISCOUNTED price. Prices are
+    # spaced by STEP (100), so discounted amounts are ~50 apart -> match the drop
+    # to the shown slot whose discounted price is closest, within a tolerance.
+    try:
+        zeni = iface.read_zeni()
+    except Exception:
+        return
+    if ctx._zeni_last is not None and zeni < ctx._zeni_last:
+        drop = ctx._zeni_last - zeni
+        best_i, best_err = None, None
+        for i in to_show:
+            full = C.SHOP_CHECK_PRICE_BASE + i * C.SHOP_CHECK_PRICE_STEP
+            disc = full // 2  # Gold card ~50% off (client always grants it)
+            err = abs(drop - disc)
+            if best_err is None or err < best_err:
+                best_err, best_i = err, i
+        if best_i is not None and best_err is not None and best_err <= 20:
+            lid = slot_loc_id(best_i)
+            if lid not in ctx.checked_locations and lid not in ctx._pending_shop_checks:
+                ctx._pending_shop_checks.add(lid)
+                logger.info(f"[BT2] Shop purchase -> {SHOP_SLOT_ORDER[best_i]}")
+    ctx._zeni_last = zeni
 
 def _enforce_dragonballs_and_wish(ctx: BT2Context, new_checks: list):
     """(1) ENFORCE the in-game Dragon Ball flags to match exactly the set AP has

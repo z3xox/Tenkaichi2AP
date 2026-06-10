@@ -47,6 +47,12 @@ MCGUFFIN_ITEMS = {
     TIME_SCROLL_ITEM: BT2_BASE_ID + 0x020,
 }
 
+# ─── Shop Restock (progression-ish item that reveals more shop checks) ────────
+SHOP_RESTOCK_ITEM = "Shop Restock"
+SHOP_ITEMS = {
+    SHOP_RESTOCK_ITEM: BT2_BASE_ID + 0x040,
+}
+
 # ─── Dragon Ball items (progression) ─────────────────────────────────────────
 # The 7 Dragon Balls are AP ITEMS, not in-game collectibles. The client enforces
 # the in-game DB flags to match exactly what AP has granted (clearing any the
@@ -68,12 +74,14 @@ item_table.update(ABILITY_ITEMS)
 item_table.update(FILLER_ITEMS)
 item_table.update(MCGUFFIN_ITEMS)
 item_table.update(DRAGONBALL_ITEMS)
+item_table.update(SHOP_ITEMS)
 
 
 # Classification helper
 _PROGRESSION = (set(SCENARIO_ITEMS) | set(FUSION_INGREDIENT_ITEMS)
                 | set(MCGUFFIN_ITEMS) | set(DRAGONBALL_ITEMS))
 _FILLER = set(FILLER_ITEMS)
+_USEFUL = set(SHOP_ITEMS)  # Shop Restock reveals more shop checks
 
 
 def classify(name: str) -> ItemClassification:

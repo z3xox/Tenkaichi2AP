@@ -45,8 +45,14 @@ def create_regions(world):
     multiworld.regions += [menu, da]
     menu.connect(da)
 
-    # Add all locations to the Dragon Adventure region.
+    # Add all locations to the Dragon Adventure region. Shop locations are
+    # capped at the shop_checks option (and excluded entirely if 0).
+    from .Locations import SHOP_LOCATIONS, SHOP_SLOT_ORDER
+    shop_checks = int(world.options.shop_checks.value)
+    shop_allowed = set(SHOP_SLOT_ORDER[:shop_checks])
     for loc_name, loc_id in location_table.items():
+        if loc_name in SHOP_LOCATIONS and loc_name not in shop_allowed:
+            continue
         loc = BT2Location(player, loc_name, loc_id, da)
         da.locations.append(loc)
 
@@ -144,6 +150,24 @@ def set_location_rules(world):
     wish_loc = multiworld.get_location(WISH_LOCATION_NAME, player)
     set_rule(wish_loc, lambda state: all(
         state.has(nm, player) for nm in DRAGONBALL_ITEM_NAMES))
+
+    # ── Shop check locations ──
+    # Shop check slot i is reachable once enough Shop Restock items received:
+    # Shop Restock items have been received: available = initial + restocks*amt.
+    from .Locations import SHOP_LOCATIONS, SHOP_SLOT_ORDER
+    from .Items import SHOP_RESTOCK_ITEM
+    shop_checks = int(world.options.shop_checks.value)
+    shop_initial = int(world.options.shop_initial.value)
+    restock_amt = max(1, int(world.options.shop_restock_amount.value))
+    shop_names = SHOP_SLOT_ORDER[:shop_checks]
+    for i, loc_name in enumerate(shop_names):
+        # how many restocks needed for slot i (0-based) to be available
+        needed = max(0, -(-(i + 1 - shop_initial) // restock_amt))  # ceil
+        loc = multiworld.get_location(loc_name, player)
+        if needed == 0:
+            set_rule(loc, lambda state: True)
+        else:
+            set_rule(loc, lambda state, n=needed: state.has(SHOP_RESTOCK_ITEM, player, n))
 
 
 def set_completion(world):
