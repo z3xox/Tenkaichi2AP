@@ -1,0 +1,156 @@
+import logging
+from typing import Any, Mapping
+
+logger = logging.getLogger(__name__)
+
+from BaseClasses import Item, ItemClassification, Tutorial
+from worlds.AutoWorld import World, WebWorld
+from worlds.LauncherComponents import Component, Type, components, launch_subprocess
+
+from .Items import (item_table, create_item,
+                    SCENARIO_ITEMS, FUSION_INGREDIENT_ITEMS,
+                    ABILITY_ITEMS, FILLER_ITEMS)
+from .Locations import location_table, get_location_names
+from .Options import BT2Options
+from .Regions import create_regions, set_location_rules, set_completion
+from .data import Constants as C
+
+
+def run_client():
+    from worlds.budokai_tenkaichi2.BT2Client import launch_client
+    launch_subprocess(launch_client, name="BT2Client")
+
+
+components.append(
+    Component("BT2 Client", func=run_client, component_type=Type.CLIENT)
+)
+
+
+class BT2Web(WebWorld):
+    theme = "stone"
+    tutorials = [Tutorial(
+        "Multiworld Setup Guide",
+        "A guide to setting up Dragon Ball Z Budokai Tenkaichi 2 for Archipelago.",
+        "English",
+        "setup_en.md",
+        "setup/en",
+        ["BT2AP"],
+    )]
+
+
+class BT2World(World):
+    """
+    Dragon Ball Z: Budokai Tenkaichi 2 — fight through 200 Dragon Adventure
+    missions across 24 scenarios, unlock scenarios and 129 characters via
+    fusions and battle conditions, in a multiworld randomizer.
+    """
+
+    game = "Dragon Ball Z Budokai Tenkaichi 2"
+    item_name_to_id = {name: code for name, code in item_table.items()}
+    location_name_to_id = get_location_names()
+    options_dataclass = BT2Options
+    options: BT2Options
+    web = BT2Web()
+
+    def generate_early(self):
+        # Precollect a random subset of scenario unlocks as the starting set.
+        n_start = min(int(self.options.starting_scenarios.value), len(C.SCENARIOS))
+        scenario_item_names = list(SCENARIO_ITEMS.keys())
+        # When the goal uses Time Scrolls, the Final Saga must stay locked until
+        # the scrolls are gathered — never precollect it as a starter.
+        goal = int(self.options.goal.value)
+        if goal in (1, 2):
+            final_saga = int(self.options.final_saga.value)
+            final_name = f"{C.SCENARIOS[final_saga][0]} Unlock"
+            scenario_item_names = [n for n in scenario_item_names if n != final_name]
+            n_start = min(n_start, len(scenario_item_names))
+        start = self.random.sample(scenario_item_names, n_start)
+        for name in start:
+            self.multiworld.push_precollected(create_item(self, name))
+        self._starting_scenarios = set(start)
+
+    def create_regions(self):
+        create_regions(self)
+
+    def create_items(self):
+        pool = []
+
+        # Scenario unlocks: all except the precollected starting ones.
+        # For the time_scrolls goal, also exclude the Final Saga's unlock item —
+        # that saga is gated by gathering Time Scrolls, not by a scenario item,
+        # so its unlock item would be dead weight in the pool.
+        starting = getattr(self, "_starting_scenarios", set())
+        excluded_unlocks = set()
+        goal = int(self.options.goal.value)
+        if goal in (1, 2):
+            fs = int(self.options.final_saga.value)
+            excluded_unlocks.add(f"{C.SCENARIOS[fs][0]} Unlock")
+        for name in SCENARIO_ITEMS:
+            if name in starting or name in excluded_unlocks:
+                continue
+            pool.append(create_item(self, name))
+
+        # Fusion ingredients: one of each (progression).
+        # In "free" fusion mode they are still distributed (harmless), but logic
+        # doesn't require them; keeping them in pool preserves location count.
+        for name in FUSION_INGREDIENT_ITEMS:
+            pool.append(create_item(self, name))
+
+        # Time Scroll McGuffins (only when the goal involves them).
+        from .Items import TIME_SCROLL_ITEM
+        goal = int(self.options.goal.value)
+        if goal in (1, 2):  # time_scrolls or both
+            req = int(self.options.time_scrolls_required.value)
+            total = max(req, int(self.options.time_scrolls_total.value))
+            self._time_scrolls_required = req
+            for _ in range(total):
+                pool.append(create_item(self, TIME_SCROLL_ITEM))
+        else:
+            self._time_scrolls_required = 0
+
+        # The 7 Dragon Balls as AP items (progression). The client enforces the
+        # in-game flags to match what AP grants; gathering all 7 enables the wish
+        # at the summon node.
+        from .Items import DRAGONBALL_ITEM_NAMES
+        for name in DRAGONBALL_ITEM_NAMES:
+            pool.append(create_item(self, name))
+
+        # Fill the remaining locations with useful (ability) + filler (Zeni)
+        # according to filler_ratio.
+        total_locs = len(self.multiworld.get_unfilled_locations(self.player))
+        remaining = max(0, total_locs - len(pool))
+
+        filler_pct = int(self.options.filler_ratio.value)
+        n_filler = (remaining * filler_pct) // 100
+        n_useful = remaining - n_filler
+
+        ability_names = list(ABILITY_ITEMS.keys())
+        filler_names = list(FILLER_ITEMS.keys())
+
+        for i in range(n_useful):
+            pool.append(create_item(self, ability_names[i % len(ability_names)]))
+        for i in range(n_filler):
+            pool.append(create_item(self, filler_names[i % len(filler_names)]))
+
+        self.multiworld.itempool.extend(pool)
+
+    def set_rules(self):
+        set_location_rules(self)
+        set_completion(self)
+
+    def get_filler_item_name(self) -> str:
+        return "Zeni x5000"
+
+    def fill_slot_data(self) -> Mapping[str, Any]:
+        return {
+            "goal": self.options.goal.value,
+            "final_saga": self.options.final_saga.value,
+            "time_scrolls_required": self.options.time_scrolls_required.value,
+            "required_scenarios": self.options.required_scenarios.value,
+            "starting_scenarios": sorted(getattr(self, "_starting_scenarios", set())),
+            "fusion_logic": self.options.fusion_logic.value,
+            "difficulty_floor": self.options.difficulty_floor.value,
+            "randomize_fighters": self.options.randomize_fighters.value,
+            "fighter_pool": self.options.fighter_pool.value,
+            "seed": self.multiworld.seed_name,
+        }
