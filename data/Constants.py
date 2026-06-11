@@ -175,20 +175,20 @@ FUSION_ITEM_ADDR = {
     "Power from lower class": 0x6333F4,
     "Absorb Gotenks": 0x633400,
     "Absorb Gohan": 0x633404,
-    "Bros. of Crane Hermot": 0x633410,
+    "Bros. of Crane Hermit": 0x633410,
     "Memorial campaign": 0x633414,
     "Makyo Star (fusion)": 0x633418,
     "Dead Zone": 0x63341C,
     "Giant Form": 0x633420,
     "Hatred of Goku": 0x633424,
-    "Bug Gete Star": 0x633428,
+    "Big Gete Star": 0x633428,
     "Seriousness": 0x63342C,
     "Namekian": 0x633430,
     "Mutation": 0x633434,
     "The Flowers of Evil": 0x633438,
     "Armored cavalry": 0x63343C,
-    "Cooler's solider": 0x633440,
-    "Son of Paragas": 0x633444,
+    "Cooler's soldier": 0x633440,
+    "Son of Paragus": 0x633444,
     "Lower class Saiyan (2)": 0x633448,
     "Frieza's soldier": 0x63344C,
     "Vegeta's rival": 0x633450,
@@ -750,3 +750,69 @@ FIGHTER_EXCLUDE_DEFAULT = [
     126, 127,         # Vegeta (second form) / SSJ Vegeta (second form)
     33, 34,           # Trunks (Sword) / SSJ Trunks (Sword)
 ]
+
+#  ── DA NAMEK ITEM SHOP (second shop, inside Dragon Adventure) ──────────────────
+#  A SEPARATE shop from the main-menu Item Shop. Confirmed live via PINE writes.
+#  Detection: read16(DA_MAP_LOCATION) == DA_NAMEK_SHOP_LOC (0x09CC).
+#  Table: base DA_SHOP_BASE, stride 0x30. Per-record fields confirmed:
+#    +0x00 = price       (write 7777 -> slot showed 7777)
+#    +0x18 = item_id / show selector. 52=Health+1, 54=Health+2 (stride 2);
+#            writing 0 HIDES the row (universal hide, like the main shop).
+#    +0x28 = max stock (999)
+#  NOTE: item_id numbering differs from the main shop's catalog index (here it's
+#  52,54,... stride 2 for the Health ladder). A full item_id->name map is TBD.
+#  Purchase detection: CONFIRMED Zeni drop at ADDR_ZENI by the FULL price (no
+#  Gold card in DA, so no 50% discount — simpler than the main shop).
+DA_MAP_LOCATION    = 0x387AB8   # 16-bit: current DA map location id
+DA_NAMEK_SHOP_LOC  = 0x09CC     # value when at Namek - Item Shop
+DA_SHOP_BASE       = 0x0184809C # record 0 of the DA Namek shop table
+DA_SHOP_STRIDE     = 0x30
+DA_SHOP_OFF_PRICE  = 0x00
+DA_SHOP_OFF_ITEM   = 0x18       # item selector; 0 = hide row
+DA_SHOP_OFF_MAXSTOCK = 0x28
+#  ✅ SOLVED: the DA Namek shop uses the SAME record layout as the MAIN shop
+#  (SHOP_STOCK_BASE 0xB05300), just at a different base. Record N starts at
+#  DA_SHOP_BASE + N*0x30, and fields mirror the main shop EXACTLY:
+#       +0x04 = SHOW MARKER  (0x36/54 = shown, 0 = hidden)   <-- visibility
+#       +0x08 = item index
+#       +0x14 = stock
+#       +0x1C = price (FULL; Gold card applies 50% at charge/display time)
+#  CONFIRMED LIVE: writing 0x36 to a hidden item's +0x04 made it appear
+#  (Health +2 test). So the main shop's shop_clear_all / shop_show_row logic
+#  ports directly to the DA table — same offsets, same marker values.
+#  NOTE: the record BASE is 0x18 BEFORE the price field. Health +1's price is
+#  at 0x0184809C, so record 0 starts at 0x1848080 (price - 0x1C).
+DA_SHOP_REC0_BASE  = 0x1848080  # record 0 start (Health +1); +0x1C = price
+DA_SHOP_OFF_MARKER = 0x04       # show marker (0x36 shown, 0 hidden) = main shop
+DA_SHOP_OFF_ITEMIDX= 0x08       # item index (main shop +0x08)
+DA_SHOP_OFF_STOCK  = 0x14       # stock (main shop +0x14)
+DA_SHOP_OFF_PRICE_REAL = 0x1C   # price (main shop +0x1C)
+DA_SHOP_SHOWN_MARKER = 0x36     # stat/ability shown marker (same as main shop)
+#  Multiple in-DA shops share the SAME record layout, differing only by table
+#  base and the map-location id that detects them. Registry: map_loc -> rec0_base.
+#  - Namek Item Shop  (0x09CC): confirmed working, rec0 0x1848080
+#  - Earth Item Shop  (0x09A9 Baba's Palace): rec0 0x1764840 (Health+1 price
+#    0x176485C confirmed live via a 7777 write)
+DA_SHOPS = {
+    0x09CC: 0x1848080,   # Namek Item Shop
+    0x09A9: 0x1764840,   # Earth Item Shop (Baba's Palace)
+}
+#  ⚠ ALIGNMENT NOTE: earlier slot→address math here was off by ~0x14 bytes.
+#  Re-anchored from a live 48-byte dump of the slot-21 (Ki) record at 0x1848460:
+#    0x1848460 = 1500 (a price-like field)
+#    0x1848470 = 6000 (another price-like field; base vs display TBD)
+#    0x1848474 = the VISIBILITY/ITEM field (54 => visible Ki+3; toggling hides/
+#                shows and can change the +N level). THIS is the show/hide knob.
+#    0x1848478 = 21 = the SLOT NUMBER (1-indexed)
+#    0x1848484 = 999 max stock
+#  So the real per-record field offsets differ from the main shop AND from the
+#  earlier guesses in this block. Before building the DA dispenser, re-derive the
+#  record base + field offsets from this anchor (the visibility field sits 0x14
+#  into the 48-byte window dumped at 0x1848460, i.e. at 0x1848474; slot# at
+#  0x1848478). Two price-like fields (1500 @ +0x00, 6000 @ +0x10 of that window)
+#  still need a write test to determine which the game actually charges.
+#  CONFIRMED MECHANICS (still valid): table is live & writable; detection is
+#  read16(0x387AB8)==0x09CC; purchases drop Zeni at ADDR_ZENI by full price;
+#  items are the Health/Ki/Attack ladders by slot block (1-19/20-38/39-57).
+#  APPROACH (per user): mirror the main shop's "hide all, show only check slots"
+#  via the visibility field — do NOT reselect items.

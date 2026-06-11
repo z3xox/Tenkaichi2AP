@@ -269,6 +269,46 @@ class BT2Interface:
         except Exception:
             pass
 
+    def read_da_map_location(self) -> int:
+        """16-bit Dragon Adventure map location id (0x09CC = Namek Item Shop).
+        Used to detect when the player is in the in-DA Namek shop."""
+        try:
+            return self.pine.read16(C.DA_MAP_LOCATION)
+        except Exception:
+            return 0
+
+    def in_da_namek_shop(self) -> bool:
+        return self.read_da_map_location() == C.DA_NAMEK_SHOP_LOC
+
+    def current_da_shop_base(self):
+        """If the player is in a known in-DA shop, return its table rec0 base;
+        else None. Multiple shops (Namek, Earth) share the same layout, keyed by
+        map location id."""
+        loc = self.read_da_map_location()
+        return C.DA_SHOPS.get(loc)
+
+    def da_shop_clear_all(self, rec0_base: int, count: int = 400):
+        """Hide every DA shop row (write 0 to each record's +0x04 marker), for
+        the table at rec0_base. Clear a wide range (the shop holds far more than
+        the 57 stat slots)."""
+        for idx in range(count):
+            try:
+                self.pine.write8(rec0_base + idx * C.DA_SHOP_STRIDE + C.DA_SHOP_OFF_MARKER, 0x00)
+            except Exception:
+                pass
+
+    def da_shop_show_row(self, rec0_base: int, slot_index: int, price: int, stock: int = 1):
+        """Show one DA shop row (marker 0x36 + price + stock) at rec0_base. The
+        stat ladder's item identity is positional, so we set marker/price/stock
+        and leave the native item index."""
+        base = rec0_base + slot_index * C.DA_SHOP_STRIDE
+        try:
+            self.pine.write8(base + C.DA_SHOP_OFF_MARKER, C.DA_SHOP_SHOWN_MARKER)
+            self.pine.write32(base + C.DA_SHOP_OFF_PRICE_REAL, price)
+            self.pine.write16(base + C.DA_SHOP_OFF_STOCK, stock)
+        except Exception:
+            pass
+
     def zero_item_owned(self, catalog_index: int):
         """Zero the player's owned quantity of a catalog item so a shop stock of
         1 yields exactly one buyable (the 'buyable' count is stock minus owned).
@@ -276,6 +316,19 @@ class BT2Interface:
         try:
             addr = C.ABILITY_BASE + catalog_index * 4
             self.pine.write16(addr + 0x02, 0)   # owned quantity -> 0
+        except Exception:
+            pass
+
+    def decrement_item_owned(self, catalog_index: int, amount: int = 1):
+        """Subtract `amount` from a catalog item's owned quantity (floored at 0).
+        Used after a shop CHECK purchase: the shop item is just a trigger for the
+        AP check, so we remove the real stat item the game added to inventory.
+        catalog index == ability-array slot; quantity is at +0x02."""
+        try:
+            addr = C.ABILITY_BASE + catalog_index * 4
+            cur = self.pine.read16(addr + 0x02)
+            new = max(0, cur - amount)
+            self.pine.write16(addr + 0x02, new)
         except Exception:
             pass
 

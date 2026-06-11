@@ -74,10 +74,14 @@ class BT2Context(CommonContext):
         self._shop_cleared_this_visit = False
         self._shop_prev_screen = None
         self._zeni_last = None
+        self._da_shop_prev = False           # DA Namek shop presence (prev poll)
+        self._da_zeni_last = None            # Zeni baseline for DA shop detection
+        self._scroll_label = None            # GUI Time Scroll progress label
         self._pending_shop_checks: set = set()
         self._shop_hint_pending: list = []   # shop loc names to auto-hint
         self._shop_hinted: set = set()       # already-hinted shop locs
         self._shop_owned_zeroed = False      # one-time: zero check-item owned qty
+        self._shop_bought_cats: set = set()  # catalog idx bought this session (keep at owned=0)
 
         # Fighter randomization (v2)
         self.randomize_fighters = 0     # 0=off,1=both,2=enemies,3=players
@@ -101,6 +105,39 @@ class BT2Context(CommonContext):
             await super().server_auth(password_requested)
         await self.get_username()
         await self.send_connect()
+
+    def make_gui(self):
+        ui = super().make_gui()
+        ui.base_title = "Dragon Ball Z Budokai Tenkaichi 2 Archipelago Client"
+        return ui
+
+    def draw_scroll_counter(self):
+        """Add/update a small Time Scroll progress label in the client's top
+        connect bar (mirrors the proven Melee pattern). Best-effort: never let a
+        GUI hiccup break the client. Only meaningful for the time_scrolls/both
+        goals; for other goals the label stays blank."""
+        try:
+            if not getattr(self, "ui", None):
+                return
+            # KivyMD support, with fallback to plain Kivy.
+            try:
+                from kvui import MDLabel as Label
+            except ImportError:
+                from kvui import Label
+
+            if getattr(self, "_scroll_label", None) is None:
+                self._scroll_label = Label(text="", size_hint_x=None,
+                                           width=160, halign="center")
+                self.ui.connect_layout.add_widget(self._scroll_label)
+
+            if self.goal in (1, 2) and self.time_scrolls_required > 0:
+                self._scroll_label.text = (
+                    f"Time Scrolls: {self.time_scrolls_received}"
+                    f"/{self.time_scrolls_required}")
+            else:
+                self._scroll_label.text = ""
+        except Exception:
+            pass
 
     def on_package(self, cmd: str, args: dict):
         if cmd == "Connected":
@@ -184,6 +221,9 @@ async def game_watcher(ctx: BT2Context):
         if ctx.server is None or ctx.slot is None:
             continue
 
+        # Update the GUI Time Scroll progress label (best-effort).
+        ctx.draw_scroll_counter()
+
         try:
             # ── Connection sentinel: read the screen identificator first. It is
             # only ever a small set of low values; if it reads as 0xFF/garbage the
@@ -228,6 +268,9 @@ async def game_watcher(ctx: BT2Context):
             # ── Shop check dispenser: take over the Item Shop (screen 0x05) ──
             if ctx.shop_checks:
                 _service_shop(ctx, screen)
+                # The DA Namek shop is a SECOND shop inside Dragon Adventure;
+                # detected by map location, not screen. Shares the check pool.
+                _service_da_shop(ctx, screen)
 
             # ── RECORD: missions ──
             missions = ctx.iface.read_all_missions()
@@ -445,6 +488,12 @@ def _service_shop(ctx: BT2Context, screen: int):
             for (cat_idx, _name) in C.SHOP_CHECK_SLOTS:
                 iface.zero_item_owned(cat_idx)
             ctx._shop_owned_zeroed = True
+        # Keep already-bought check-items at owned=0 every poll. The game adds
+        # the real stat item on purchase (possibly a frame after the Zeni drop we
+        # detect), so a one-shot decrement can miss; re-zeroing here guarantees
+        # bought check-items never accumulate in inventory.
+        for cat_idx in ctx._shop_bought_cats:
+            iface.zero_item_owned(cat_idx)
         iface.shop_clear_all()
         if ctx._zeni_last is None:
             ctx._zeni_last = iface.read_zeni()
@@ -484,8 +533,98 @@ def _service_shop(ctx: BT2Context, screen: int):
             lid = slot_loc_id(best_i)
             if lid not in ctx.checked_locations and lid not in ctx._pending_shop_checks:
                 ctx._pending_shop_checks.add(lid)
+                # The shop check-item is just a trigger; remove the real stat
+                # item the game added to inventory so it doesn't accumulate.
+                bought_cat_idx, _name = C.SHOP_CHECK_SLOTS[best_i]
+                iface.decrement_item_owned(bought_cat_idx, 1)
+                ctx._shop_bought_cats.add(bought_cat_idx)
                 logger.info(f"[BT2] Shop purchase -> {SHOP_SLOT_ORDER[best_i]}")
     ctx._zeni_last = zeni
+
+def _service_da_shop(ctx: BT2Context, screen: int):
+    """Take over any in-Dragon-Adventure item shop (Namek, Earth, ...). These
+    are SECOND shops with the same record layout as the main shop, each at its
+    own table base, detected by the DA map location id (DA_SHOPS registry).
+    Clears all rows each poll, shows available stat-ladder check-items at unique
+    prices, and detects purchases by Zeni drop. SHARES the main shop's check
+    pool and guards, so a given shop check fires once across ALL shops.
+
+    Only the 57 stat-ladder checks (Health/Ki/Attack +1..+19) map to DA slots
+    (DA slot == main catalog index for catalog 0-56). Blast / Ultimate Blast
+    (catalog 100/150) have no DA stat slot and stay main-shop-only.
+    """
+    from .Locations import SHOP_SLOT_ORDER, location_table
+    iface = ctx.iface
+
+    rec0_base = iface.current_da_shop_base()   # None unless in a known DA shop
+    on_shop = rec0_base is not None
+    entering = on_shop and not getattr(ctx, "_da_shop_prev", False)
+    ctx._da_shop_prev = on_shop
+
+    if not on_shop:
+        ctx._da_zeni_last = None
+        return
+
+    n_total = min(ctx.shop_checks, len(SHOP_SLOT_ORDER))
+    available = min(
+        n_total,
+        ctx.shop_initial + ctx.shop_restocks_received * ctx.shop_restock_amount,
+    )
+
+    def slot_loc_id(i):
+        return location_table[SHOP_SLOT_ORDER[i]]
+
+    def slot_done(i):
+        lid = slot_loc_id(i)
+        return lid in ctx.checked_locations or lid in ctx._pending_shop_checks
+
+    def da_slot_for(i):
+        cat_idx, _name = C.SHOP_CHECK_SLOTS[i]
+        return cat_idx if cat_idx <= 56 else None
+
+    to_show = [i for i in range(available)
+               if i < n_total and not slot_done(i) and da_slot_for(i) is not None]
+
+    try:
+        iface.shop_grant_members_card()       # Gold card -> 50% discount (same as main)
+        iface.da_shop_clear_all(rec0_base)    # hide all DA rows every poll
+        if ctx._da_zeni_last is None:
+            ctx._da_zeni_last = iface.read_zeni()
+    except Exception:
+        return
+
+    for i in to_show:
+        da_slot = da_slot_for(i)
+        price = C.SHOP_CHECK_PRICE_BASE + i * C.SHOP_CHECK_PRICE_STEP
+        iface.da_shop_show_row(rec0_base, da_slot, price, stock=1)
+
+    if entering:
+        ctx._shop_hint_pending = [SHOP_SLOT_ORDER[i] for i in to_show
+                                  if slot_loc_id(i) not in ctx.checked_locations]
+
+    try:
+        zeni = iface.read_zeni()
+    except Exception:
+        return
+    if ctx._da_zeni_last is not None and zeni < ctx._da_zeni_last:
+        drop = ctx._da_zeni_last - zeni
+        best_i, best_err = None, None
+        for i in to_show:
+            full = C.SHOP_CHECK_PRICE_BASE + i * C.SHOP_CHECK_PRICE_STEP
+            disc = full // 2
+            err = abs(drop - disc)
+            if best_err is None or err < best_err:
+                best_err, best_i = err, i
+        if best_i is not None and best_err is not None and best_err <= 20:
+            lid = slot_loc_id(best_i)
+            if lid not in ctx.checked_locations and lid not in ctx._pending_shop_checks:
+                ctx._pending_shop_checks.add(lid)
+                bought_cat_idx, _name = C.SHOP_CHECK_SLOTS[best_i]
+                iface.decrement_item_owned(bought_cat_idx, 1)
+                ctx._shop_bought_cats.add(bought_cat_idx)
+                logger.info(f"[BT2] DA shop purchase -> {SHOP_SLOT_ORDER[best_i]}")
+    ctx._da_zeni_last = zeni
+
 
 def _enforce_dragonballs_and_wish(ctx: BT2Context, new_checks: list):
     """(1) ENFORCE the in-game Dragon Ball flags to match exactly the set AP has

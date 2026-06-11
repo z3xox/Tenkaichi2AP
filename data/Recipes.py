@@ -21,17 +21,14 @@ from . import Constants as data
 
 # Guide-spelling -> canonical (roster or fusion-item) name.
 NAME_FIXES = {
-    "Son of Paragus": "Son of Paragas",          # fusion item spelling
     "Kibitoshin": "Kibitokai",                   # roster spelling
     "Supreme Kai": "Supreme Kai",                # roster has "Superme Kai" (sic) - see ROSTER_TYPOS
     "Fruit of the Gods": "Fruit of the Tree of Might",
     "Lower-Class Saiyan Soldier": "Lower class Saiyan",
-    "Big Gete Star": "Bug Gete Star",            # fusion item spelling ("Bug")
     "Reconstructive Surgery": "Remodeling surgery",
     "Suicide Bomb": "Self Destruction",
     "Self Destruct": "Self Destruction",
     "Evil Human Cannonball": "Human gunman's gun",
-    "Bros. of Crane Hermit": "Bros. of Crane Hermot",
     "Cell Perfect Form": "Cell Perfect Form",
     "Vegeta (second form)": "Vegeta (second form)",
 }
@@ -52,13 +49,13 @@ RECIPES = {
     "Fusion Android 13":      ("FUSION", ["Android 13", "Parts of #14/#15"]),
     "Baby Vegeta":            ("FUSION", ["Baby", "Vegeta (second form)"]),
     "Bojack":                 ("FUSION", ["Unsealed", "Galactic Warrior"]),
-    "Broly":                  ("FUSION", ["Son of Paragas", "Hatred of Goku"]),
+    "Broly":                  ("FUSION", ["Son of Paragus", "Hatred of Goku"]),
     "Cooler":                 ("FUSION", ["Frieza's brother", "Hatred of Goku"]),
     "Cooler Final Form":      ("FUSION", ["Ultimate transformation", "Cooler"]),
     "Cui":                    ("FUSION", ["Vegeta's rival", "Frieza's soldier"]),
     "Full Power Bojack":      ("FUSION", ["Ultimate transformation", "Bojack"]),
     "Garlic Jr.":             ("FUSION", ["Makyo Star (fusion)", "Dead Zone"]),
-    "General Tao":            ("FUSION", ["Bros. of Crane Hermot", "Memorial campaign"]),
+    "General Tao":            ("FUSION", ["Bros. of Crane Hermit", "Memorial campaign"]),
     "Hirudegarn":             ("FUSION", ["Hirudegarn's top half", "Hirudegarn's lower half"]),
     "Janemba":                ("FUSION", ["Saike demon", "People's bad energy"]),
     "Kibitokai":              ("FUSION", ["Kibito", "Supreme Kai"]),
@@ -67,9 +64,9 @@ RECIPES = {
     "Master Roshi":           ("FUSION", ["Master Roshi's pupil", "Fox Mask"]),  # see note
     "MAX Power Master Roshi": ("FUSION", ["Master Roshi", "Seriousness"]),
     "Mecha Frieza":           ("FUSION", ["Remodeling surgery", "Full Power Frieza"]),
-    "Meta-Cooler":            ("FUSION", ["Bug Gete Star", "Cooler"]),
+    "Meta-Cooler":            ("FUSION", ["Big Gete Star", "Cooler"]),
     "Omega Shenron":          ("FUSION", ["Syn Shenron", "Ultimate Dragonball"]),
-    "Salza":                  ("FUSION", ["Cooler's solider", "Armored cavalry"]),
+    "Salza":                  ("FUSION", ["Cooler's soldier", "Armored cavalry"]),
     "Super 17":               ("FUSION", ["HFIL fighter #17", "Android #17"]),
     "Super Baby 1":           ("FUSION", ["Baby Vegeta", "Lower class Saiyan"]),
     "Super Baby 2":           ("FUSION", ["Super Baby 1", "Power from lower class"]),
