@@ -220,9 +220,16 @@ class BT2Interface:
             return
         cur = self.pine.read8(addr)
         self.pine.write8(addr, cur | 0x01)
-        # bump quantity so it's usable in fusion
-        q = self.pine.read16(addr + 2)
-        self.pine.write16(addr + 2, max(q, 1))
+        # "Z Item Fusion" is the GENERIC fusion capsule consumed by EVERY fusion
+        # (one per fuse), so the player needs an effectively unlimited supply.
+        # Keep it topped up to 999; the re-assert loop refills it as fusions
+        # consume it. All other ingredients are specific, consumable items and
+        # stay at quantity 1 (their consumable logic is enforced elsewhere).
+        if ingredient_name == "Z Item Fusion":
+            self.pine.write16(addr + 2, 999)
+        else:
+            q = self.pine.read16(addr + 2)
+            self.pine.write16(addr + 2, max(q, 1))
 
     # ── Ability items (useful) ──
     def grant_ability(self, ability_name: str):

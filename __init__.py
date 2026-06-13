@@ -96,17 +96,29 @@ class BT2World(World):
         # every fusion character once (roster-character ingredients are NOT
         # consumed, so they're excluded). In "free" mode logic doesn't require
         # them, but we still place 1 each to preserve location count.
+        # "Z Item Fusion" is the universal fusion capsule consumed by EVERY fuse,
+        # so rather than gate all fusions behind one findable check, we START
+        # with it (precollected) and skip it in the pool. The client grants it as
+        # an effectively unlimited supply (999, refilled each poll).
+        ZIF_ITEM = "Ingredient: Z Item Fusion"
+        if ZIF_ITEM in FUSION_INGREDIENT_ITEMS:
+            self.multiworld.push_precollected(create_item(self, ZIF_ITEM))
+
         fusion_full = (int(self.options.fusion_logic.value) == 0)
         if fusion_full:
             from .data import Recipes as _R
             demand = _R.ingredient_demand()
             for name in FUSION_INGREDIENT_ITEMS:
+                if name == ZIF_ITEM:
+                    continue  # started with it
                 canon = name[len("Ingredient: "):]
                 copies = max(1, demand.get(canon, 1))
                 for _ in range(copies):
                     pool.append(create_item(self, name))
         else:
             for name in FUSION_INGREDIENT_ITEMS:
+                if name == ZIF_ITEM:
+                    continue  # started with it
                 pool.append(create_item(self, name))
 
         # Time Scroll McGuffins (only when the goal involves them).
