@@ -109,7 +109,10 @@ RECIPES = {
     "Majin Vegeta":           ("BATTLE", "Majin Buu Saga"),
     "Gotenks":                ("BATTLE", "Majin Buu Saga"),
     "Vegito":                 ("BATTLE", "Majin Buu Saga"),
-    "Super Vegito":           ("FUSION", ["Absorb Gohan", "Super Buu"]),  # placeholder; verify
+    "Super Vegito":           ("BATTLE", "Majin Buu Saga"),  # beat Super Buu Gohan in "Savior Appears"
+    # Super Buu's two absorbed forms — both fuse from regular Super Buu:
+    "Super Buu 1":            ("FUSION", ["Absorb Gotenks", "Super Buu"]),  # Gotenks Absorbed
+    "Super Buu 2":            ("FUSION", ["Absorb Gohan", "Super Buu"]),    # Gohan Absorbed
     # Trunks (base) is a DEFAULT UNLOCK (available from the start) — no check.
     # (Removed from recipes so Recipes.starters() treats him as a starter.)
     "Uub":                    ("BATTLE", "Wrath of the Dragon"),

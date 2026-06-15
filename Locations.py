@@ -39,6 +39,56 @@ def _build_character_locations():
 _build_character_locations()
 
 
+# ─── Fusion result locations (performing a fusion = a check) ──────────────────
+# Each fusion-result character is obtained ONLY by performing its fusion in
+# Evolution Z. Doing so flips that character's roster flag, which the client
+# detects to fire this check. Logic (in Regions) requires the base character +
+# the ingredient item(s).
+FUSE_LOCATIONS: dict[str, int] = {}
+_fuse_meta: dict[str, tuple[int, int]] = {}  # name -> (roster_idx, addr)
+
+
+def _build_fuse_locations():
+    from .data import Recipes as R
+    fusion_results = [n for n, (k, _r) in R.RECIPES.items() if k == "FUSION"]
+    for cname in fusion_results:
+        try:
+            idx = C.CHARACTERS.index(cname)
+        except ValueError:
+            continue  # result not in roster list (shouldn't happen)
+        loc_name = f"Fuse: {cname}"
+        FUSE_LOCATIONS[loc_name] = BT2_LOC_BASE + 0x3000 + idx
+        _fuse_meta[loc_name] = (idx, C.character_addr(idx))
+
+
+_build_fuse_locations()
+
+
+def fuse_meta(name: str) -> tuple[int, int]:
+    return _fuse_meta[name]
+
+
+# ─── Ingredient discovery locations (first time obtaining an ingredient) ──────
+# The FIRST time the player obtains/owns each fusion ingredient capsule is a
+# check. The client detects the ingredient's owned flag going non-zero. Logic
+# requires having received that ingredient item from AP.
+DISCOVER_LOCATIONS: dict[str, int] = {}
+_discover_meta: dict[str, tuple[int, str]] = {}  # name -> (ingredient_index, ingredient_name)
+
+for _ii, _ingname in enumerate(C.FUSION_ITEM_ADDR.keys()):
+    if _ingname == "Z Item Fusion":
+        continue  # universal capsule is precollected, not a discoverable check
+    if _ingname in C.NON_RECIPE_INGREDIENTS:
+        continue  # not used in any fusion recipe — no Discover check
+    _loc = f"Discover: {_ingname}"
+    DISCOVER_LOCATIONS[_loc] = BT2_LOC_BASE + 0x5000 + _ii
+    _discover_meta[_loc] = (_ii, _ingname)
+
+
+def discover_meta(name: str) -> tuple[int, str]:
+    return _discover_meta[name]
+
+
 # ─── Secret what-if scenario unlock locations (Philosophy B) ──────────────────
 # The 3 what-if sagas unlock via in-game conditions (completing specific trigger
 # missions). Meeting the condition is itself a CHECK. The scenario stays GATED
@@ -81,7 +131,11 @@ SHOP_CHECK_COUNT = len(SHOP_LOCATIONS)
 # ─── Master table ────────────────────────────────────────────────────────────
 location_table: dict[str, int] = {}
 location_table.update(MISSION_LOCATIONS)
-location_table.update(CHARACTER_LOCATIONS)
+# NOTE: CHARACTER_LOCATIONS are intentionally NOT registered — non-fusion
+# characters are AP ITEMS now, and fusion-result characters are obtained via
+# the FUSE_LOCATIONS checks below.
+location_table.update(FUSE_LOCATIONS)
+location_table.update(DISCOVER_LOCATIONS)
 location_table.update(SECRET_UNLOCK_LOCATIONS)
 location_table.update(WISH_LOCATIONS)
 location_table.update(SHOP_LOCATIONS)

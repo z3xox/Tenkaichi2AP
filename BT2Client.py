@@ -25,9 +25,12 @@ from .BT2Interface import BT2Interface
 from .data import Constants as C
 from .Items import (item_table, SCENARIO_ITEMS, FUSION_INGREDIENT_ITEMS,
                     ABILITY_ITEMS, FILLER_ITEMS, TIME_SCROLL_ITEM,
-                    DRAGONBALL_ITEM_NAMES, SHOP_RESTOCK_ITEM)
+                    DRAGONBALL_ITEM_NAMES, SHOP_RESTOCK_ITEM,
+                    CHARACTER_UNLOCK_ITEMS)
 from .Locations import (location_table, MISSION_LOCATIONS, CHARACTER_LOCATIONS,
-                        mission_meta, character_meta)
+                        mission_meta, character_meta,
+                        FUSE_LOCATIONS, fuse_meta,
+                        DISCOVER_LOCATIONS, discover_meta)
 
 # Reverse lookups
 ID_TO_ITEM = {code: name for name, code in item_table.items()}
@@ -60,6 +63,8 @@ class BT2Context(CommonContext):
         self.granted_ingredients: set[str] = set()
         self.granted_abilities: set[str] = set()
         self.granted_characters: set[int] = set()    # roster indices (from AP, if any)
+        self._lockable_char_indices = None            # non-starter roster indices (cached)
+        self._last_battle_won: bool = False           # latch for victory-edge discovery detection
         self.granted_dragonballs: set[int] = set()    # 0-based ball indices from AP
         self.difficulty_floor = 1
         self.time_scrolls_received = 0
@@ -181,6 +186,15 @@ class BT2Context(CommonContext):
             idx = self._scenario_name_to_index(name)
             if idx is not None:
                 self.unlocked_scenarios.add(idx)
+        elif name in CHARACTER_UNLOCK_ITEMS:
+            # "<char> Character" -> roster index. Characters are AP items: mark
+            # the roster index so the grant loop unlocks it for Z-Fusion/Duel.
+            cname = name[:-len(" Character")]
+            try:
+                ridx = C.CHARACTERS.index(cname)
+                self.granted_characters.add(ridx)
+            except ValueError:
+                pass
         elif name in FUSION_INGREDIENT_ITEMS:
             # "Ingredient: X" -> X
             self.granted_ingredients.add(name[len("Ingredient: "):])
@@ -253,6 +267,25 @@ async def game_watcher(ctx: BT2Context):
                     else:
                         effective_unlocks.discard(ctx.final_saga)  # force locked
                 ctx.iface.enforce_scenarios(effective_unlocks)
+                # ── Character lock (Model B): roster starts LOCKED ──
+                # Lock every unlockable BATTLE character AP hasn't granted yet,
+                # so only received characters are selectable in Z-Fusion/Duel.
+                # EXCLUDE fusion-result characters — those are earned by actually
+                # performing the fusion in-game (which fires their Fuse check),
+                # so we must NOT re-lock them or the player could never fuse.
+                if ctx._lockable_char_indices is None:
+                    from .data import Recipes as _R
+                    starter_names = set(_R.starters())
+                    fusion_results = {n for n, (k, _r) in _R.RECIPES.items()
+                                      if k == "FUSION"}
+                    ctx._lockable_char_indices = [
+                        i for i, nm in enumerate(C.CHARACTERS)
+                        if nm not in starter_names and nm not in fusion_results
+                    ]
+                for ridx in ctx._lockable_char_indices:
+                    if ridx not in ctx.granted_characters:
+                        ctx.iface.lock_character(ridx)
+
                 # grant ingredients/abilities/characters AP has sent
                 for ing in ctx.granted_ingredients:
                     ctx.iface.grant_ingredient(ing)
@@ -317,19 +350,75 @@ async def game_watcher(ctx: BT2Context):
                     continue
                 new_checks.append(loc_id)
 
-            # ── RECORD: characters ──
-            for loc_name in CHARACTER_LOCATIONS:
-                ridx, _addr = character_meta(loc_name)
+            # NOTE: non-fusion characters are AP ITEMS now — no character-unlock
+            # check detection. The roster is locked/granted via the lock/grant
+            # loop above. Fusion-result characters ARE checks (detected below).
+
+            # ── Fusion result checks: a fused character's roster flag turned on ──
+            # Performing a fusion in Evolution Z flips the result's roster flag.
+            # Fire the "Fuse: <result>" check when that happens (and wasn't set
+            # at baseline / already granted as a starter).
+            for loc_name, loc_id in FUSE_LOCATIONS.items():
+                ridx, _addr = fuse_meta(loc_name)
                 if not chars[ridx]:
                     continue
-                loc_id = location_table[loc_name]
                 if loc_id in ctx.checked_locations:
                     continue
-                # Suppress characters that were already unlocked at baseline
-                # (defaults like Nappa/Dodoria, or prior saved unlocks).
-                if ctx._char_baseline[ridx]:
-                    continue
+                if ctx._char_baseline is not None and ctx._char_baseline[ridx]:
+                    continue  # already fused/unlocked before we attached
                 new_checks.append(loc_id)
+
+            # ── Ingredient discovery checks ──
+            # For MAPPED ingredients: fire "Discover: <ingredient>" when the
+            # player WINS the specific in-game fight that drops it, identified
+            # by (scenario, chapter, fight_id) + Battle Status == Victory. This
+            # is independent of the inventory flag, so AP-granted ingredients
+            # don't false-fire.
+            # For UNMAPPED ingredients: fall back to the owned-flag heuristic so
+            # discovery still works until every fight is mapped.
+            from .data import Discovery as _Disc
+            scen, chap, fid = ctx.iface.read_da_fight_context()
+            status = ctx.iface.read_battle_status()
+            won = (status == 0x01)
+            # Latch: only act on a fresh victory transition (status just became
+            # 0x01), so we don't re-fire every poll while the result screen sits.
+            fresh_victory = won and not getattr(ctx, "_last_battle_won", False)
+            ctx._last_battle_won = won
+
+            # MAPPING AID: on each fresh victory, log the live fight signature so
+            # ingredient drop fights can be mapped by simply reading the client
+            # log (no memory dumps needed). Remove once mapping is complete.
+            if fresh_victory and scen is not None:
+                logger.info(f"[BT2] VICTORY — fight signature: "
+                            f"scenario={scen} chapter={chap} fight_id={fid} (0x{fid:X})")
+
+            # Recurring-enemy ingredients: discovered by winning ANY fight with
+            # a matching fight_id (e.g. General Tao). Resolve the set of such
+            # ingredients for the current victory's fight_id.
+            fight_id_ings = set()
+            if fresh_victory and fid is not None:
+                fight_id_ings = set(_Disc.fight_id_ingredients(fid))
+
+            for loc_name, loc_id in DISCOVER_LOCATIONS.items():
+                _ii, ingname = discover_meta(loc_name)
+                if loc_id in ctx.checked_locations:
+                    continue
+                sigs = _Disc.discovery_fights(ingname)
+                if ingname in fight_id_ings:
+                    # Recurring-enemy match: any fight with this fight_id.
+                    new_checks.append(loc_id)
+                elif sigs:
+                    # Mapped: require winning one of its specific drop fights.
+                    if fresh_victory and scen is not None:
+                        if (scen, chap, fid) in sigs:
+                            new_checks.append(loc_id)
+                else:
+                    # Unmapped fallback: owned-flag heuristic.
+                    try:
+                        if ctx.iface.read_ingredient_owned(ingname):
+                            new_checks.append(loc_id)
+                    except Exception:
+                        pass
 
             # ── Dragon Balls (ENFORCE to AP grants) + Wish check ──
             _enforce_dragonballs_and_wish(ctx, new_checks)

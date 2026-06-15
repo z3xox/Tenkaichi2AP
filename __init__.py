@@ -53,9 +53,59 @@ class BT2World(World):
     web = BT2Web()
 
     def generate_early(self):
+        # Resolve which sagas are DISABLED. excluded_sagas lists saga NAMES; map
+        # them to indices. The Final Saga (the goal scenario) is ALWAYS kept
+        # enabled, so it's removed from the excluded set even if the player
+        # listed it. The result drives both location creation (skip disabled
+        # sagas' mission checks) and item creation (skip their unlock items).
+        name_to_idx = {name: i for i, (name, _c) in enumerate(C.SCENARIOS)}
+        excluded_names = set(self.options.excluded_sagas.value)
+        excluded_idx = {name_to_idx[n] for n in excluded_names if n in name_to_idx}
+        # Never exclude the Final Saga.
+        final_saga = int(self.options.final_saga.value)
+        excluded_idx.discard(final_saga)
+        # Safety: never allow ALL sagas to be excluded (need something to play).
+        if len(excluded_idx) >= len(C.SCENARIOS):
+            excluded_idx.discard(final_saga)  # keep at least the final saga
+        self._excluded_sagas = excluded_idx
+
+        # Balance guard: excluding sagas removes their mission LOCATIONS faster
+        # than it removes items (only 1 scenario item each), and characters are
+        # now items too. If the player excludes so many sagas that the remaining
+        # locations can't host the mandatory item pool, fail early with a clear
+        # message instead of a cryptic FillError deep in generation.
+        from .Items import (SCENARIO_ITEMS, FUSION_INGREDIENT_ITEMS,
+                            CHARACTER_UNLOCK_ITEMS, DRAGONBALL_ITEMS)
+        from . import Locations as _L
+        # Remaining mission locations after exclusions.
+        excluded_mission_count = sum(C.SCENARIOS[i][1] for i in excluded_idx)
+        remaining_missions = len(_L.MISSION_LOCATIONS) - excluded_mission_count
+        shop_checks = int(self.options.shop_checks.value)
+        remaining_locs = (remaining_missions
+                          + len(_L.SECRET_UNLOCK_LOCATIONS)
+                          + len(_L.WISH_LOCATIONS)
+                          + len(_L.FUSE_LOCATIONS)
+                          + len(_L.DISCOVER_LOCATIONS)
+                          + min(shop_checks, len(_L.SHOP_LOCATIONS)))
+        # Mandatory items: scenario unlocks for ENABLED sagas + ingredients +
+        # character items + dragonballs (+ time scrolls handled as filler-ish).
+        n_scen_items = len(SCENARIO_ITEMS) - len(excluded_idx)
+        mandatory = (n_scen_items + len(FUSION_INGREDIENT_ITEMS)
+                     + len(CHARACTER_UNLOCK_ITEMS) + len(DRAGONBALL_ITEMS))
+        if remaining_locs < mandatory:
+            from Options import OptionError
+            raise OptionError(
+                f"[BT2] excluded_sagas removes too many checks: {remaining_locs} "
+                f"locations remain but {mandatory} mandatory items must be placed. "
+                f"Exclude fewer sagas, or enable more shop_checks to add locations.")
+
         # Precollect a random subset of scenario unlocks as the starting set.
         n_start = min(int(self.options.starting_scenarios.value), len(C.SCENARIOS))
         scenario_item_names = list(SCENARIO_ITEMS.keys())
+        # Don't precollect unlocks for DISABLED sagas (they aren't in the pool).
+        excluded_unlock_names = {f"{C.SCENARIOS[i][0]} Unlock" for i in self._excluded_sagas}
+        scenario_item_names = [n for n in scenario_item_names
+                               if n not in excluded_unlock_names]
         # When the goal uses Time Scrolls, the Final Saga must stay locked until
         # the scrolls are gathered — never precollect it as a starter.
         goal = int(self.options.goal.value)
@@ -81,6 +131,9 @@ class BT2World(World):
         # so its unlock item would be dead weight in the pool.
         starting = getattr(self, "_starting_scenarios", set())
         excluded_unlocks = set()
+        # Disabled sagas: their unlock items are not placed (no checks there).
+        for i in getattr(self, "_excluded_sagas", set()):
+            excluded_unlocks.add(f"{C.SCENARIOS[i][0]} Unlock")
         goal = int(self.options.goal.value)
         if goal in (1, 2):
             fs = int(self.options.final_saga.value)
@@ -120,6 +173,13 @@ class BT2World(World):
                 if name == ZIF_ITEM:
                     continue  # started with it
                 pool.append(create_item(self, name))
+
+        # Character unlock items (Model B): one per non-starter roster character.
+        # These are progression items — receiving one unlocks that fighter for
+        # Z-Fusion/Duel (the client locks the roster until granted).
+        from .Items import CHARACTER_UNLOCK_ITEMS
+        for name in CHARACTER_UNLOCK_ITEMS:
+            pool.append(create_item(self, name))
 
         # Time Scroll McGuffins (only when the goal involves them).
         from .Items import TIME_SCROLL_ITEM
@@ -195,6 +255,7 @@ class BT2World(World):
             "time_scrolls_required": self.options.time_scrolls_required.value,
             "required_scenarios": self.options.required_scenarios.value,
             "starting_scenarios": sorted(getattr(self, "_starting_scenarios", set())),
+            "excluded_sagas": sorted(getattr(self, "_excluded_sagas", set())),
             "fusion_logic": self.options.fusion_logic.value,
             "difficulty_floor": self.options.difficulty_floor.value,
             "randomize_fighters": self.options.randomize_fighters.value,

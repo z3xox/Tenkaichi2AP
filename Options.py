@@ -1,5 +1,6 @@
 from dataclasses import dataclass
-from Options import Toggle, Choice, Range, PerGameCommonOptions
+from Options import Toggle, Choice, Range, OptionSet, PerGameCommonOptions
+from .data import Constants as _C
 
 
 class Goal(Choice):
@@ -161,10 +162,30 @@ class ShopRestockAmount(Range):
     default = 10
 
 
+class ExcludedSagas(OptionSet):
+    """Sagas (chapters) to DISABLE. By default this is empty, meaning ALL 24
+    sagas are included. List any saga names here to exclude them: their mission
+    checks and unlock item are removed from the pool and you never need to play
+    them. The Final Saga (your goal) is ALWAYS kept enabled even if listed here.
+    Example: ['Lord Slug', 'Makyo Star'].
+
+    Valid saga names: Saiyan Saga, Tree of Might, Lord Slug, Final Battle,
+    Frieza Saga, Makyo Star, Cooler's Revenge, The Return of Cooler, The Story
+    of Trunks, Android Saga, Super Android 13, Broly: The Legendary Super Saiyan,
+    Ultimate Future Warrior, Bojack Unbound, Majin Buu Saga, Broly: The Second
+    Coming, Fusion Reborn, Wrath of the Dragon, Baby, The Avenger, Ultimate
+    Android, Evil Dragon of Absolute Destruction, Fateful Brothers, Beautiful
+    Treachery..., Destined Rivals."""
+    display_name = "Excluded Sagas"
+    valid_keys = frozenset(name for name, _count in _C.SCENARIOS)
+    default = frozenset()
+
+
 @dataclass
 class BT2Options(PerGameCommonOptions):
     goal: Goal
     final_saga: FinalSaga
+    excluded_sagas: ExcludedSagas
     time_scrolls_required: TimeScrollsRequired
     time_scrolls_total: TimeScrollsTotal
     required_scenarios: RequiredScenarios

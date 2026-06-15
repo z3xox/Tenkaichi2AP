@@ -25,6 +25,8 @@ ADDR_SCREEN_SUBTYPE   = 0x76BDD8   # (Screen Type: 0x08 = DA Navigation)
 ADDR_DA_SCENARIO      = 0x76BDF0   # current scenario index (read-only context)
 ADDR_DA_CHAPTER       = 0x76BDF4
 ADDR_DA_GAME_LEVEL    = 0x76BDF8
+ADDR_DA_FIGHT_ID      = 0x76BDFC   # per-fight id within a chapter (main vs optional differ)
+ADDR_BATTLE_STATUS    = 0x76BCC0   # 8-bit: 0x00 pending, 0x01 victory, 0x02 defeat, 0x08 surrender
 ADDR_ZENI             = 0x63383C   # [32-bit] Current Zeni -- CONFIRMED (write renders live)
 
 SCREEN_DA_MAP = 0x07               # safe-to-write value for DA flags
@@ -208,6 +210,26 @@ FUSION_ITEM_ADDR = {
 }
 
 assert len(FUSION_ITEM_ADDR) == 60, f"expected 60 fusion items, got {len(FUSION_ITEM_ADDR)}"
+
+# In-game fusion capsules that are NOT used as an ingredient in any fusion
+# recipe. They exist in the game's item list but feed no fusion, so we don't
+# create AP ingredient items or Discover checks for them (they would just be
+# clutter/filler). "Z Item Fusion" is handled separately (precollected).
+NON_RECIPE_INGREDIENTS = frozenset({
+    "100G Training",
+    "Babidi's Brainwashing",
+    "Dragon Power",
+    "Elder Kai's Ritual",
+    "Elder Releases Potential",
+    "Human gunman's gun",
+    "King Yemma's Stamp",
+    "Lower class Saiyan (2)",
+    "Miracle",
+    "One Who Loves Justice",
+    "Tortoise Shell",
+    "Ultimate God Water",
+    "Wicked Heart Revealed",
+})
 
 
 # ─────────────────────────────────────────────

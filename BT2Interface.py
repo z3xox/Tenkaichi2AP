@@ -213,7 +213,52 @@ class BT2Interface:
         self.pine.write8(addr, cur | 0x01)
         self.pine.write16(addr + 2, 1)
 
+    def lock_character(self, roster_index: int):
+        """Clear a character's roster unlock flag (the inverse of
+        grant_character). Used to keep the roster locked until AP grants the
+        character. Only affects Z-Fusion/Duel selectability; story fights use
+        their own forced characters and are unaffected."""
+        addr = C.character_addr(roster_index)
+        cur = self.pine.read8(addr)
+        self.pine.write8(addr, cur & ~0x01)
+        self.pine.write16(addr + 2, 0)
+
+    # ── Dragon Adventure fight context (for ingredient discovery) ──
+    def read_da_fight_context(self):
+        """Return (scenario, chapter, fight_id) from the live Dragon Adventure
+        context, or (None, None, None) on failure. fight_id distinguishes the
+        main vs optional fights within a chapter."""
+        try:
+            scen = self.pine.read32(C.ADDR_DA_SCENARIO)
+            chap = self.pine.read32(C.ADDR_DA_CHAPTER)
+            fid = self.pine.read32(C.ADDR_DA_FIGHT_ID)
+            return (scen, chap, fid)
+        except Exception:
+            return (None, None, None)
+
+    def read_battle_status(self) -> int:
+        """Battle status: 0x00 pending, 0x01 victory, 0x02 defeat, 0x08
+        surrender. Returns -1 on failure."""
+        try:
+            return self.pine.read8(C.ADDR_BATTLE_STATUS)
+        except Exception:
+            return -1
+
     # ── Fusion ingredients (granted to inventory) ──
+    def read_ingredient_owned(self, ingredient_name: str) -> bool:
+        """True if the fusion ingredient is owned (unlock bit set OR quantity
+        > 0). Used to fire 'Discover: <ingredient>' checks the first time the
+        player obtains an ingredient."""
+        addr = C.FUSION_ITEM_ADDR.get(ingredient_name)
+        if addr is None:
+            return False
+        try:
+            owned_bit = (self.pine.read8(addr) & 0x01) != 0
+            qty = self.pine.read16(addr + 2)
+            return owned_bit or qty > 0
+        except Exception:
+            return False
+
     def grant_ingredient(self, ingredient_name: str):
         addr = C.FUSION_ITEM_ADDR.get(ingredient_name)
         if addr is None:

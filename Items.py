@@ -23,6 +23,20 @@ SCENARIO_ITEMS = {
 FUSION_INGREDIENT_ITEMS = {
     f"Ingredient: {name}": BT2_BASE_ID + 0x200 + i
     for i, name in enumerate(C.FUSION_ITEM_ADDR.keys())
+    if name not in C.NON_RECIPE_INGREDIENTS
+}
+
+# ─── Character Unlock Items (progression) ────────────────────────────────────
+# Characters are AP ITEMS, EXCEPT fusion-result characters (which are obtained
+# only by performing the fusion in-game — that fires a "Fuse: <result>" check).
+# So character items = non-starter roster chars that are NOT fusion results
+# (i.e. BATTLE-unlock characters used as fusion bases or standalone fighters).
+_FUSION_RESULTS = {n for n, (k, _r) in R.RECIPES.items() if k == "FUSION"}
+_UNLOCKABLE_CHARS = [c for c in C.CHARACTERS
+                     if c in R.RECIPES and c not in _FUSION_RESULTS]
+CHARACTER_UNLOCK_ITEMS = {
+    f"{name} Character": BT2_BASE_ID + 0x600 + i
+    for i, name in enumerate(_UNLOCKABLE_CHARS)
 }
 
 # ─── Ability Items (useful / filler) ─────────────────────────────────────────
@@ -70,6 +84,7 @@ DRAGONBALL_ITEMS = {
 item_table: dict[str, int] = {}
 item_table.update(SCENARIO_ITEMS)
 item_table.update(FUSION_INGREDIENT_ITEMS)
+item_table.update(CHARACTER_UNLOCK_ITEMS)
 item_table.update(ABILITY_ITEMS)
 item_table.update(FILLER_ITEMS)
 item_table.update(MCGUFFIN_ITEMS)
@@ -79,6 +94,7 @@ item_table.update(SHOP_ITEMS)
 
 # Classification helper
 _PROGRESSION = (set(SCENARIO_ITEMS) | set(FUSION_INGREDIENT_ITEMS)
+                | set(CHARACTER_UNLOCK_ITEMS)
                 | set(MCGUFFIN_ITEMS) | set(DRAGONBALL_ITEMS)
                 | set(SHOP_ITEMS))  # Shop Restock GATES shop locations -> must be
                                     # progression, or the generator treats the
