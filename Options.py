@@ -133,6 +133,25 @@ class FighterPool(Choice):
     default = 0
 
 
+class DisableGiants(Toggle):
+    """When ON, giant-class fighters (Great Apes/Ozaru, Hirudegarn, Janemba,
+    Super Slug, Slug, etc.) are excluded from the fighter-randomizer pool, since
+    their size/arena behavior can be janky or unfair as randomized opponents.
+    Only affects randomized fighters; story fights are unchanged."""
+    display_name = "Disable Giants"
+    default = 0
+
+
+class DeathLink(Toggle):
+    """When ON, losing a fight (Defeat or Surrender) sends a death to everyone
+    else in the multiworld also playing with DeathLink, and receiving a death
+    from another player zeroes your fighters' health to force a loss in your
+    current fight. If you're not in an active fight when a death arrives, it is
+    applied to your next fight."""
+    display_name = "Death Link"
+    default = 0
+
+
 class ShopChecks(Range):
     """How many Item Shop purchase checks to add. The client takes over the
     shop, hides all default items, and shows named check-items the player buys
@@ -195,6 +214,8 @@ class BT2Options(PerGameCommonOptions):
     difficulty_floor: DifficultyFloor
     randomize_fighters: RandomizeFighters
     fighter_pool: FighterPool
+    disable_giants: DisableGiants
+    death_link: DeathLink
     shop_checks: ShopChecks
     shop_initial: ShopInitial
     shop_restock_amount: ShopRestockAmount

@@ -244,6 +244,32 @@ class BT2Interface:
         except Exception:
             return -1
 
+    def kill_player(self) -> bool:
+        """DeathLink incoming: zero ALL of Player 1's character health gauges to
+        force a loss in the current fight. Returns True if any write succeeded.
+        Safe to call when not in a fight (writes simply have no visible effect)."""
+        ok = False
+        for addr in C.ADDR_P1_HEALTH:
+            try:
+                self.pine.write32(addr, 0)
+                ok = True
+            except Exception:
+                pass
+        return ok
+
+    def read_screen_type(self) -> int:
+        """Screen Type: 0x00 Menu, 0x01 Battle, 0x08 Dragon Adventure Nav.
+        Returns -1 on failure."""
+        try:
+            return self.pine.read8(C.ADDR_SCREEN_TYPE_DL)
+        except Exception:
+            return -1
+
+    def in_active_fight(self) -> bool:
+        """True only when the Screen Type says we're in Battle (0x01). Incoming
+        DeathLinks are applied only here; on Menu/DA-Nav they stay buffered."""
+        return self.read_screen_type() == C.SCREEN_DL_BATTLE
+
     # ── Fusion ingredients (granted to inventory) ──
     def read_ingredient_owned(self, ingredient_name: str) -> bool:
         """True if the fusion ingredient is owned (unlock bit set OR quantity
@@ -279,6 +305,15 @@ class BT2Interface:
     # ── Ability items (useful) ──
     def grant_ability(self, ability_name: str):
         addr = C.ABILITY_ITEM_ADDR.get(ability_name)
+        if addr is None:
+            return
+        cur = self.pine.read8(addr)
+        self.pine.write8(addr, cur | 0x01)
+        q = self.pine.read16(addr + 2)
+        self.pine.write16(addr + 2, max(q, 1))
+
+    def grant_support(self, support_name: str):
+        addr = C.SUPPORT_ITEM_ADDR.get(support_name)
         if addr is None:
             return
         cur = self.pine.read8(addr)

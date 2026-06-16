@@ -15,6 +15,7 @@ import asyncio
 from typing import Optional
 
 import Utils
+from Utils import async_start
 from CommonClient import (
     CommonContext, get_base_parser, server_loop,
     gui_enabled, logger, ClientCommandProcessor,
@@ -24,7 +25,7 @@ from NetUtils import ClientStatus
 from .BT2Interface import BT2Interface
 from .data import Constants as C
 from .Items import (item_table, SCENARIO_ITEMS, FUSION_INGREDIENT_ITEMS,
-                    ABILITY_ITEMS, FILLER_ITEMS, TIME_SCROLL_ITEM,
+                    ABILITY_ITEMS, SUPPORT_ITEMS, FILLER_ITEMS, TIME_SCROLL_ITEM,
                     DRAGONBALL_ITEM_NAMES, SHOP_RESTOCK_ITEM,
                     CHARACTER_UNLOCK_ITEMS)
 from .Locations import (location_table, MISSION_LOCATIONS, CHARACTER_LOCATIONS,
@@ -62,6 +63,7 @@ class BT2Context(CommonContext):
         self.unlocked_scenarios: set[int] = set()   # scenario indices
         self.granted_ingredients: set[str] = set()
         self.granted_abilities: set[str] = set()
+        self.granted_supports: set[str] = set()
         self.granted_characters: set[int] = set()    # roster indices (from AP, if any)
         self._lockable_char_indices = None            # non-starter roster indices (cached)
         self._last_battle_won: bool = False           # latch for victory-edge discovery detection
@@ -91,6 +93,15 @@ class BT2Context(CommonContext):
         # Fighter randomization (v2)
         self.randomize_fighters = 0     # 0=off,1=both,2=enemies,3=players
         self.fighter_pool = 0           # 0=any, 1=unlocked
+        self.disable_giants = 0         # 1=exclude giant fighters from randomizer
+        self.death_link = 0             # 1=DeathLink enabled
+        self._pending_death = False     # incoming death waiting to apply (buffered)
+        self._deathlink_caused = False  # our defeat was caused by incoming DL
+        self._fight_went_live = False   # observed pending(0x00) while in Battle
+        self._victory_lock = False      # victory seen this fight -> no death fires
+        self._loss_sent = False         # already broadcast this fight's loss
+        self._killing = False           # actively re-zeroing rotating fighters
+        self._last_battle_status = 0x00 # for edge-detect of defeat/surrender
         self._last_matchup_sig = None   # detect new fight (matchup block change)
         self._randomized_sig = None     # which matchup sig we've already randomized
 
@@ -150,6 +161,8 @@ class BT2Context(CommonContext):
             self.difficulty_floor = int(self.slot_data.get("difficulty_floor", 1))
             self.randomize_fighters = int(self.slot_data.get("randomize_fighters", 0))
             self.fighter_pool = int(self.slot_data.get("fighter_pool", 0))
+            self.disable_giants = int(self.slot_data.get("disable_giants", 0))
+            self.death_link = int(self.slot_data.get("death_link", 0))
             self.goal = int(self.slot_data.get("goal", 1))
             self.time_scrolls_required = int(self.slot_data.get("time_scrolls_required", 0))
             self.final_saga = int(self.slot_data.get("final_saga", 20))
@@ -158,9 +171,19 @@ class BT2Context(CommonContext):
             self.shop_restock_amount = int(self.slot_data.get("shop_restock_amount", 10))
             # Starting scenarios from slot_data (names) -> indices
             self._apply_starting_scenarios()
+            # DeathLink: register the tag / handler if enabled.
+            if getattr(self, "death_link", 0):
+                async_start(self.update_death_link(True))
         elif cmd == "ReceivedItems":
             for net_item in args["items"]:
                 self._receive_item(net_item.item)
+
+    def on_deathlink(self, data: dict):
+        """Incoming DeathLink: queue a death to apply to the current/next fight.
+        CommonContext calls this when a DeathLink bounce arrives (after we've
+        registered the tag via update_death_link)."""
+        super().on_deathlink(data)
+        self._pending_death = True
 
     def _scenario_name_to_index(self, unlock_item_name: str) -> Optional[int]:
         # "Saiyan Saga Unlock" -> index
@@ -200,6 +223,8 @@ class BT2Context(CommonContext):
             self.granted_ingredients.add(name[len("Ingredient: "):])
         elif name in ABILITY_ITEMS:
             self.granted_abilities.add(name[len("Z-Item: "):])
+        elif name in SUPPORT_ITEMS:
+            self.granted_supports.add(name[len("Z-Support: "):])
         elif name in FILLER_ITEMS:
             amt = {"Zeni x1000": 1000, "Zeni x5000": 5000, "Zeni x10000": 10000}.get(name, 0)
             if amt and self.connected_to_game:
@@ -218,6 +243,61 @@ class BT2Context(CommonContext):
 def _difficulty_ok(value: int, floor: int) -> bool:
     # value 0=uncompleted, 1/2/3 = cleared on Level 1/2/3.
     return value >= floor and value != 0
+
+
+def _handle_deathlink(ctx, status):
+    """DeathLink handling — runs EVERY cycle BEFORE the mission-validity guard,
+    because it depends only on battle status + screen type + health addrs, not
+    on the (sometimes-unstable-mid-fight) mission region. Running it after that
+    guard caused intermittent misses when a mid-fight garbage mission read
+    triggered a continue and skipped the whole block."""
+    if not getattr(ctx, 'death_link', 0):
+        return
+    screen = ctx.iface.read_screen_type()
+    in_battle = (screen == C.SCREEN_DL_BATTLE)
+
+    if in_battle and status == 0x00:
+        ctx._fight_went_live = True
+    if not in_battle:
+        ctx._fight_went_live = False
+        ctx._loss_sent = False
+        ctx._victory_lock = False
+        ctx._killing = False
+
+    # Victory lockout: victory seen this fight -> no death may fire.
+    if in_battle and status == C.BATTLE_STATUS_VICTORY:
+        ctx._victory_lock = True
+
+    live = getattr(ctx, '_fight_went_live', False)
+    is_loss_status = status in (C.BATTLE_STATUS_DEFEAT, C.BATTLE_STATUS_SURRENDER)
+
+    # OUTGOING: send once on a genuine loss (fight went live, ended in loss,
+    # victory never seen). Anti-chain: a death we were handed doesn't echo.
+    if (live and is_loss_status
+            and not getattr(ctx, '_victory_lock', False)
+            and not getattr(ctx, '_loss_sent', False)):
+        ctx._loss_sent = True
+        if getattr(ctx, '_deathlink_caused', False):
+            ctx._deathlink_caused = False
+        else:
+            cause = ('surrendered' if status == C.BATTLE_STATUS_SURRENDER
+                     else 'was defeated')
+            async_start(ctx.send_death(
+                f"{ctx.player_names.get(ctx.slot, 'Player')} {cause} in battle."))
+
+    # INCOMING: apply a queued death once the fight is live; PERSIST the kill
+    # (re-zero every poll) for multi-char teams until Defeat or leaving battle.
+    if getattr(ctx, '_pending_death', False) and in_battle and live:
+        ctx._killing = True
+        ctx._pending_death = False
+        ctx._deathlink_caused = True
+    if getattr(ctx, '_killing', False):
+        if in_battle and status not in (C.BATTLE_STATUS_DEFEAT, C.BATTLE_STATUS_SURRENDER):
+            ctx.iface.kill_player()
+        else:
+            ctx._killing = False
+
+    ctx._last_battle_status = status
 
 
 async def game_watcher(ctx: BT2Context):
@@ -250,6 +330,18 @@ async def game_watcher(ctx: BT2Context):
                 ctx._char_baseline = None
                 ctx._secret_baseline = None
                 continue
+
+            # ── DeathLink (run EARLY) ──────────────────────────────────────
+            # Handle DeathLink BEFORE the mission-validity guard below, which can
+            # `continue` (skip the rest of the cycle) on a mid-fight garbage
+            # mission read. DeathLink only needs battle status + screen type +
+            # health, so it must not be gated by mission-region validity, or
+            # received deaths intermittently fail to apply.
+            if getattr(ctx, "death_link", 0):
+                try:
+                    _handle_deathlink(ctx, ctx.iface.read_battle_status())
+                except Exception as e:
+                    logger.debug(f"[BT2] deathlink handler error: {e}")
 
             # ── ENFORCE: hold scenario gates + grant inventory ──
             # Assert on Main Menu (0x04) so lockout is set before the player
@@ -291,6 +383,8 @@ async def game_watcher(ctx: BT2Context):
                     ctx.iface.grant_ingredient(ing)
                 for ab in ctx.granted_abilities:
                     ctx.iface.grant_ability(ab)
+                for sp in ctx.granted_supports:
+                    ctx.iface.grant_support(sp)
                 for ridx in ctx.granted_characters:
                     ctx.iface.grant_character(ridx)
 
@@ -385,12 +479,6 @@ async def game_watcher(ctx: BT2Context):
             fresh_victory = won and not getattr(ctx, "_last_battle_won", False)
             ctx._last_battle_won = won
 
-            # MAPPING AID: on each fresh victory, log the live fight signature so
-            # ingredient drop fights can be mapped by simply reading the client
-            # log (no memory dumps needed). Remove once mapping is complete.
-            if fresh_victory and scen is not None:
-                logger.info(f"[BT2] VICTORY — fight signature: "
-                            f"scenario={scen} chapter={chap} fight_id={fid} (0x{fid:X})")
 
             # Recurring-enemy ingredients: discovered by winning ANY fight with
             # a matching fight_id (e.g. General Tao). Resolve the set of such
@@ -513,6 +601,22 @@ def _maybe_randomize_fighters(ctx: BT2Context):
         pool = unlocked if unlocked else list(range(roster_n))
     else:
         pool = list(range(roster_n))
+
+    # ALWAYS exclude non-spawnable/debug fighters (e.g. "Delete Character" 98)
+    # from every pool, regardless of options.
+    always_exclude = set(C.FIGHTER_CRASH_EXCLUDE)
+    if always_exclude:
+        filtered = [i for i in pool if i not in always_exclude]
+        if filtered:
+            pool = filtered
+
+    # Disable Giants: remove giant-class fighter IDs from the pool. Falls back to
+    # the unfiltered pool if filtering would leave nothing to pick from.
+    if getattr(ctx, "disable_giants", 0):
+        giants = set(C.FIGHTER_GIANT_IDS)
+        filtered = [i for i in pool if i not in giants]
+        if filtered:
+            pool = filtered
 
     def pick(_seq):
         return rng.choice(pool)

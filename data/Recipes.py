@@ -61,7 +61,8 @@ RECIPES = {
     "Kibitokai":              ("FUSION", ["Kibito", "Supreme Kai"]),
     "Legendary Super Saiyan Broly": ("FUSION", ["Super Saiyan Broly", "breakthrough the limit"]),
     "Slug":                   ("FUSION", ["Namekian", "Mutation"]),
-    "Master Roshi":           ("FUSION", ["Master Roshi's pupil", "Fox Mask"]),  # see note
+    "Grandpa Gohan":          ("FUSION", ["Master Roshi's pupil", "Fox Mask"]),
+    "Master Roshi":           ("BATTLE", "Saiyan Saga"),  # base char; feeds MAX Power fusion
     "MAX Power Master Roshi": ("FUSION", ["Master Roshi", "Seriousness"]),
     "Mecha Frieza":           ("FUSION", ["Remodeling surgery", "Full Power Frieza"]),
     "Meta-Cooler":            ("FUSION", ["Big Gete Star", "Cooler"]),
@@ -159,40 +160,31 @@ def starters() -> list[str]:
 
 
 def ingredient_demand() -> dict:
-    """Fusion ITEMS are CONSUMED when fused (roster characters used as
-    ingredients are NOT consumed — having them unlocked is enough). To unlock
-    every fusion character once, each fusion-item ingredient must be supplied as
-    many times as it is consumed across all recipes — including transitively,
-    when a fusion result is itself an ingredient of another fusion (it must be
-    re-produced, consuming its fusion items again).
+    """Fusion ITEMS are CONSUMED when fused. Fusion CHARACTERS, once fused, are
+    a PERMANENT unlock — they stay available as bases for further fusions WITHOUT
+    being re-fused. So each consumable fusion-item ingredient needs exactly as
+    many copies as the number of DISTINCT fusion results that consume it directly.
 
-    Returns {fusion_item_name: copies_needed}, counting ONLY fusion-item
-    ingredients. Roster-character ingredients are skipped (not consumed)."""
-    roster = set(data.CHARACTERS)
+    We do NOT recurse into base fusion-characters: a chain like
+    Super Baby 2 <- Super Baby 1 <- Baby Vegeta <- (Baby + Vegeta) consumes one
+    Baby (for Baby Vegeta) ONCE; Super Baby 1/2 reuse the already-unlocked
+    permanents and do not re-consume Baby.
+
+    Returns {fusion_item_name: copies_needed}, counting ONLY consumable
+    fusion-item ingredients. Character ingredients (starter, battle-unlock or
+    fusion-result) are permanent and need no extra copies."""
     fusion_items = set(data.FUSION_ITEM_ADDR.keys())
     demand: dict = {}
 
-    def add(result):
-        entry = RECIPES.get(result)
-        if not entry or entry[0] != "FUSION":
-            return
-        for ing in entry[1]:
+    for result, (kind, ings) in RECIPES.items():
+        if kind != "FUSION":
+            continue
+        for ing in ings:
             canon = _canon(ing)
-            if canon in roster and canon in RECIPES and RECIPES[canon][0] == "FUSION":
-                # ingredient is itself a FUSION character -> must be re-fused,
-                # which re-consumes ITS fusion items (recurse).
-                add(canon)
-            elif canon in fusion_items:
-                # consumable fusion item -> count a copy
+            if canon in fusion_items:
+                # consumable fusion item -> one copy per distinct result
                 demand[canon] = demand.get(canon, 0) + 1
-            else:
-                # roster-character ingredient (starter or battle-unlock): NOT
-                # consumed, so it needs no extra copies. Skip.
-                pass
-
-    for result, (kind, _ings) in RECIPES.items():
-        if kind == "FUSION":
-            add(result)
+            # character bases are permanent once obtained -> no extra copy
     return demand
 
 

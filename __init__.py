@@ -9,7 +9,7 @@ from worlds.LauncherComponents import Component, Type, components, launch_subpro
 
 from .Items import (item_table, create_item,
                     SCENARIO_ITEMS, FUSION_INGREDIENT_ITEMS,
-                    ABILITY_ITEMS, FILLER_ITEMS)
+                    ABILITY_ITEMS, SUPPORT_ITEMS, FILLER_ITEMS)
 from .Locations import location_table, get_location_names
 from .Options import BT2Options
 from .Regions import create_regions, set_location_rules, set_completion
@@ -221,18 +221,24 @@ class BT2World(World):
         n_useful = remaining - n_filler
 
         ability_names = list(ABILITY_ITEMS.keys())
+        support_names = list(SUPPORT_ITEMS.keys())
         filler_names = list(FILLER_ITEMS.keys())
 
-        # Useful slots: ability stat-boosts (Attack/Ki/Defense/Speed/Blast/etc.)
+        # Useful slots: ability stat-boosts AND support Z-Items at EQUAL priority.
+        # Shuffle the combined pool so neither category is front-loaded (a plain
+        # ability+support concatenation would place all abilities first and only
+        # reach supports if there were >155 useful slots).
+        useful_pool = ability_names + support_names
+        self.random.shuffle(useful_pool)
         for i in range(n_useful):
-            pool.append(create_item(self, ability_names[i % len(ability_names)]))
+            pool.append(create_item(self, useful_pool[i % len(useful_pool)]))
 
-        # Filler slots: a VARIED mix of Zeni AND scattered stat-boost items
-        # (Attack/Ki/Defense/Speed/Blast/Health), so filler isn't monotonous
-        # Zeni. ~40% Zeni, ~60% random stat boosts.
+        # Filler slots: a VARIED mix of Zeni AND scattered stat-boost / support
+        # items, so filler isn't monotonous Zeni. ~40% Zeni, ~60% random Z-Items,
+        # with abilities and supports drawn from a single combined bucket.
         stat_filler = [n for n in ability_names if any(
             s in n for s in ("Health +", "Ki +", "Attack +", "Defense +",
-                             "Speed +", "Blast"))]
+                             "Speed +", "Blast"))] + support_names
         for i in range(n_filler):
             if not stat_filler or self.random.random() < 0.4:
                 pool.append(create_item(self, self.random.choice(filler_names)))
@@ -260,6 +266,8 @@ class BT2World(World):
             "difficulty_floor": self.options.difficulty_floor.value,
             "randomize_fighters": self.options.randomize_fighters.value,
             "fighter_pool": self.options.fighter_pool.value,
+            "disable_giants": self.options.disable_giants.value,
+            "death_link": self.options.death_link.value,
             "shop_checks": self.options.shop_checks.value,
             "shop_initial": self.options.shop_initial.value,
             "shop_restock_amount": self.options.shop_restock_amount.value,

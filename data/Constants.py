@@ -29,6 +29,28 @@ ADDR_DA_FIGHT_ID      = 0x76BDFC   # per-fight id within a chapter (main vs opti
 ADDR_BATTLE_STATUS    = 0x76BCC0   # 8-bit: 0x00 pending, 0x01 victory, 0x02 defeat, 0x08 surrender
 ADDR_ZENI             = 0x63383C   # [32-bit] Current Zeni -- CONFIRMED (write renders live)
 
+# DeathLink: Player 1's per-character health gauges (32-bit each). Confirmed
+# live in-game: a clean +0x80 stride per teammate from char 1. Zeroing ALL of
+# these forces the whole team to lose (a tagged-in teammate whose slot wasn't
+# zeroed would otherwise enter at full health).
+ADDR_P1_HEALTH = [
+    0x17E8908,   # Player 1 - Character 1 health gauge
+    0x17E8988,   # Player 1 - Character 2 health gauge
+    0x17E8A08,   # Player 1 - Character 3 health gauge
+    0x17E8A88,   # Player 1 - Character 4 health gauge
+    0x17E8B08,   # Player 1 - Character 5 health gauge
+]
+BATTLE_STATUS_VICTORY   = 0x01
+BATTLE_STATUS_DEFEAT    = 0x02
+BATTLE_STATUS_SURRENDER = 0x08
+
+# Screen Type: distinguishes where the player currently is. Used to gate
+# DeathLink application (only apply an incoming death while actually in Battle).
+ADDR_SCREEN_TYPE_DL = 0x76BD18
+SCREEN_DL_MENU   = 0x00
+SCREEN_DL_BATTLE = 0x01
+SCREEN_DL_DA_NAV = 0x08
+
 SCREEN_DA_MAP = 0x07               # safe-to-write value for DA flags
 
 # ─────────────────────────────────────────────
@@ -260,6 +282,121 @@ def _ability_table():
     return table
 
 ABILITY_ITEM_ADDR = _ability_table()
+
+
+# ─────────────────────────────────────────────
+#  Support-type Z-Items (filler/useful) - stride 4 from 0x6331a0 with a
+#  few skipped slots; addresses are EXPLICIT (not a simple stride loop).
+#  Layout per item: +0x00 unlocked bit0, +0x02 qty(16-bit) — same as all
+#  other Z-Item categories. ~105 items; pooled as filler/useful.
+# ─────────────────────────────────────────────
+SUPPORT_ITEM_ADDR = {
+    'Dragon Homing Uses + 1': 0x6331a0,
+    'Dragon Homing Uses +2': 0x6331a4,
+    'Lock on Range Enlargement': 0x6331a8,
+    'Master\'s Skills': 0x6331ac,
+    'Regeneration ability': 0x6331b0,
+    'Eternal Energy Device': 0x6331b4,
+    'Tension Up': 0x6331b8,
+    'I am Champion!!': 0x6331bc,
+    'Warrior Race': 0x6331c0,
+    'Indomitable Spirit': 0x6331c4,
+    'Fighting Spirit Elevation': 0x6331cc,
+    'Ki Control': 0x6331d0,
+    'Miracle Z': 0x6331d4,
+    'Gravity Device': 0x6331d8,
+    'Magic Beast Yakon': 0x6331dc,
+    'MAX POWER Plus': 0x6331e0,
+    'Abandonment Essence': 0x6331e4,
+    'Hit Essence': 0x6331e8,
+    'Miracle Z Plus': 0x6331ec,
+    'Cool Mind': 0x6331f0,
+    'Stealth Mode': 0x6331f4,
+    'Aura Barrier': 0x6331f8,
+    'Advanced Senses': 0x6331fc,
+    'Poserful Style': 0x633200,
+    'Energy Breaker': 0x633204,
+    'Fighting Charisma': 0x633208,
+    'Heavy Pressure': 0x63320c,
+    'Active Heart': 0x633210,
+    'Mind Breaker': 0x633214,
+    'Conversion Attack': 0x633218,
+    'Desperation': 0x63321c,
+    'Perfect Guard': 0x633220,
+    'Quick Recover': 0x633224,
+    'Raging Hurricane Strike': 0x633228,
+    'Inescapable Menace': 0x63322c,
+    'Dende\'s Healing': 0x633230,
+    'Kibitokai\'s Secret Arts': 0x633234,
+    'Self-Confidence': 0x633238,
+    'Master\'s Essence': 0x63323c,
+    'Master\'s Spirit': 0x633240,
+    'Master\'s Pressure': 0x633244,
+    'Master\'s Presence': 0x633248,
+    'Master\'s Trump Card': 0x63324c,
+    'Master\'s Secret Plan': 0x633250,
+    'Master\'s Protection': 0x633254,
+    'Succession Technique': 0x633258,
+    'Everyone\'s Hopes': 0x63325c,
+    'Halo': 0x633260,
+    'Majin Seal': 0x633264,
+    'Hints of martial arts': 0x633268,
+    'Title [Tenkaichi]': 0x63326c,
+    'Title [Top Fighter]': 0x633270,
+    'Title [Elite]': 0x633274,
+    'Title [SuperFighter]': 0x633278,
+    'The god of Justice': 0x63327c,
+    'Mystery of Shenron': 0x633280,
+    'The sacred water': 0x633284,
+    'Master Piece [Roshi]': 0x633288,
+    'Master Piece [Crane Hermit]': 0x63328c,
+    'Puar\'s support': 0x633290,
+    'Oolon\'s support': 0x633294,
+    'Chichi\'s support': 0x633298,
+    'Bulma\'s support': 0x63329c,
+    'Muuri\'s support': 0x6332a0,
+    'King Cold\'s support': 0x6332a4,
+    'Kiss of #18': 0x6332a8,
+    'Spopovich': 0x6332ac,
+    'Yamu': 0x6332b0,
+    'Puipui': 0x6332b4,
+    'Zoonama\'s barb': 0x6332b8,
+    'Micro band': 0x6332c0,
+    'The Turtle stone': 0x6332c4,
+    'Vicious desire': 0x6332c8,
+    'The emperor\'s aura': 0x6332cc,
+    'Eternal Life': 0x6332d0,
+    'Z Fighter\'s bond': 0x6332d4,
+    'Ginyu Force\'s bond': 0x6332d8,
+    'Genuine Power': 0x6332dc,
+    'Result of Training': 0x6332e0,
+    'Ki!': 0x6332e4,
+    'Rage!': 0x6332e8,
+    'Charge!': 0x6332ec,
+    'Guts !': 0x6332f0,
+    'Finish!': 0x6332f4,
+    'Potential power!': 0x6332f8,
+    'Unbelievable attack!': 0x6332fc,
+    'Great saver!': 0x633300,
+    'Don\'t monkey around with me!': 0x633304,
+    'I won\'t forgive you !': 0x633308,
+    'Fighter\'s Pride': 0x63330c,
+    'Tougher than ever': 0x633310,
+    'Speedy & Heavy Blow': 0x633314,
+    'Unleash Ki': 0x633318,
+    'Furious Power': 0x63331c,
+    'Turtle Hermit\'s uniform': 0x633320,
+    'Piccolo\'s uniform': 0x633324,
+    'Fighting Jacket': 0x633328,
+    'The bravest sword': 0x63332c,
+    'Limitless Power': 0x633334,
+    'Shenron\'s record': 0x63333c,
+    'Gero\'s lab data': 0x633340,
+    'Babidi\'s magic': 0x633344,
+    'Bibidi\'s Mmagic': 0x633348,
+    'Gohan\'s teacher': 0x63334c,
+    'Perfect stance': 0x633350,
+}
 
 
 # ─────────────────────────────────────────────
@@ -758,20 +895,38 @@ ADDR_MEMBERS_CARD_GOLD        = 0x6334E8   # [bit0] unlocked
 ADDR_MEMBERS_CARD_GOLD_QTY    = 0x6334EA   # [16-bit] quantity
 
 #  ── Fighter randomizer: excluded characters ──
-#  Some characters crash a fight when spawned cold via the matchup block
-#  (likely transformation/form states whose required setup/params don't match a
-#  generic spawn). Apes are FINE (confirmed). These transformation-state forms
-#  are excluded from the randomizer pool by default. Refine via testing.
-FIGHTER_EXCLUDE_DEFAULT = [
-    20,   # Zarbon Post Transformation
-    27, 28, 29, 30,   # Frieza 1st/2nd/3rd/Final Form
-    41, 42, 43,       # Cell 1st/2nd/Perfect Form
-    62,   # Majin Buu (Pure Evil)
-    73,   # Cooler Final Form
-    79,   # Vegeta (Scouter)
-    126, 127,         # Vegeta (second form) / SSJ Vegeta (second form)
-    33, 34,           # Trunks (Sword) / SSJ Trunks (Sword)
+#  NOTE: an earlier crash-exclusion list (transformation/form states) turned out
+#  to be a FALSE POSITIVE — those forms spawn fine via the matchup block — so it
+#  was removed. The only ALWAYS-excluded entry is the debug "Delete Character"
+#  placeholder at roster 98, which is a non-functional dev slot and must never be
+#  spawned as a randomized fighter (applies to ALL pools, regardless of options).
+FIGHTER_CRASH_EXCLUDE = [
+    98,    # "Delete Character" — unused debug placeholder, never spawn
 ]
+
+#  GIANT-class fighters. Excluded from the randomizer pool ONLY when the
+#  "Disable Giants" option is ON. These are the LIVE in-game fighter IDs read
+#  from the battle struct (first byte at 0x17E88D0 / 0x17E9E20) — the same space
+#  the matchup slot 0x8CC2E0 accepts (confirmed: writing 97 spawns Super Slug).
+#  NOTE: above ~100 these IDs DIVERGE from the CHARACTERS[] list (which is
+#  misaligned in that range), so these were captured live in-game and are
+#  authoritative — do NOT "correct" them against CHARACTERS names.
+FIGHTER_GIANT_IDS = [
+    69,    # Great Ape
+    70,    # Great Ape Vegeta
+    96,    # Slug
+    97,    # Super Slug
+    104,   # Janemba
+    106,   # Great Ape Baby
+    107,   # Great Ape Raditz
+    108,   # Great Ape Nappa
+    109,   # Great Ape Bardock
+    121,   # Great Ape Turles
+    124,   # Hirudegarn
+]
+
+#  Back-compat alias (older code referenced FIGHTER_EXCLUDE_DEFAULT).
+FIGHTER_EXCLUDE_DEFAULT = FIGHTER_CRASH_EXCLUDE
 
 #  ── DA NAMEK ITEM SHOP (second shop, inside Dragon Adventure) ──────────────────
 #  A SEPARATE shop from the main-menu Item Shop. Confirmed live via PINE writes.
