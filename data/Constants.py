@@ -243,7 +243,6 @@ NON_RECIPE_INGREDIENTS = frozenset({
     "Dragon Power",
     "Elder Kai's Ritual",
     "Elder Releases Potential",
-    "Human gunman's gun",
     "King Yemma's Stamp",
     "Lower class Saiyan (2)",
     "Miracle",
@@ -251,6 +250,18 @@ NON_RECIPE_INGREDIENTS = frozenset({
     "Tortoise Shell",
     "Ultimate God Water",
     "Wicked Heart Revealed",
+})
+
+# Ingredients that ARE used in a fusion recipe (so they're distributed as items
+# and gate a Fuse check) but have NO reliable in-game discovery signal. Their
+# only drop fights live at higher difficulties whose fight_ids collide with
+# unrelated fights, so fight-based discovery would false-fire, and the owned-flag
+# fallback also false-fires the instant AP grants the ingredient. We therefore
+# skip generating a "Discover:" check location for these — the fusion they feed
+# (e.g. General Tao) stays fully intact.
+UNDISCOVERABLE_INGREDIENTS = frozenset({
+    "Memorial campaign",
+    "Bros. of Crane Hermit",
 })
 
 

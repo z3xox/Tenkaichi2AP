@@ -80,6 +80,9 @@ for _ii, _ingname in enumerate(C.FUSION_ITEM_ADDR.keys()):
         continue  # universal capsule is precollected, not a discoverable check
     if _ingname in C.NON_RECIPE_INGREDIENTS:
         continue  # not used in any fusion recipe — no Discover check
+    if _ingname in C.UNDISCOVERABLE_INGREDIENTS:
+        continue  # used in a fusion but has no reliable discovery signal — the
+                  # fusion stays intact, but no false-firing Discover check
     _loc = f"Discover: {_ingname}"
     DISCOVER_LOCATIONS[_loc] = BT2_LOC_BASE + 0x5000 + _ii
     _discover_meta[_loc] = (_ii, _ingname)

@@ -7,7 +7,7 @@ from BaseClasses import Item, ItemClassification, Tutorial
 from worlds.AutoWorld import World, WebWorld
 from worlds.LauncherComponents import Component, Type, components, launch_subprocess
 
-from .Items import (item_table, create_item,
+from .Items import (item_table, create_item, BT2Item,
                     SCENARIO_ITEMS, FUSION_INGREDIENT_ITEMS,
                     ABILITY_ITEMS, SUPPORT_ITEMS, FILLER_ITEMS)
 from .Locations import location_table, get_location_names
@@ -121,6 +121,13 @@ class BT2World(World):
 
     def create_regions(self):
         create_regions(self)
+
+    def create_item(self, name: str) -> BT2Item:
+        """Create a single item by name. Required as a World METHOD (distinct
+        from the module-level helper) because Archipelago core and tools like
+        Universal Tracker call multiworld.create_item(name) -> world.create_item.
+        Without this override the base World.create_item raises NotImplementedError."""
+        return create_item(self, name)
 
     def create_items(self):
         pool = []

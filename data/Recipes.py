@@ -107,6 +107,11 @@ RECIPES = {
     "Tapion":                 ("BATTLE", "Wrath of the Dragon"),
     "Kid Buu":                ("BATTLE", "Majin Buu Saga"),
     "Super Buu":              ("BATTLE", "Majin Buu Saga"),
+    # Majin Buu is a DEFAULT UNLOCK (available from the start) — no recipe, so
+    # Recipes.starters() treats him as a starter. He's still usable as the base
+    # part of the Evil Buu fusion below (char_rule lets starters fuse for free).
+    # Evil Buu = Human gunman's gun + Majin Buu.
+    "Majin Buu (Pure Evil)":  ("FUSION", ["Human gunman's gun", "Majin Buu"]),
     "Majin Vegeta":           ("BATTLE", "Majin Buu Saga"),
     "Gotenks":                ("BATTLE", "Majin Buu Saga"),
     "Vegito":                 ("BATTLE", "Majin Buu Saga"),
