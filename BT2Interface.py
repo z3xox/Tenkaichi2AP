@@ -160,6 +160,29 @@ class BT2Interface:
         """Only write DA flags on the DA map/menu (not mid-battle/cutscene)."""
         return self.get_screen_identificator() == 0x07
 
+    # ── Cutscene auto-skip ──
+    def cutscene_active(self) -> bool:
+        """True when an in-game dialogue cutscene is playing/loading. The list
+        head at 0x003B0F00 is 0 in the overworld and only nonzero while a
+        cutscene scene is active, so reading nonzero is itself the detector."""
+        try:
+            return self.pine.read32(C.ADDR_CUTSCENE_LIST_HEAD) != 0
+        except Exception:
+            return False
+
+    def skip_cutscene(self) -> bool:
+        """Remove the active in-game cutscene scene so the game tears it down and
+        transitions out cleanly (same effect as the pause-menu Skip). Returns
+        True if a cutscene was present and we issued the skip write. Safe to call
+        unconditionally: in the overworld the head is already 0, so this no-ops."""
+        try:
+            if self.pine.read32(C.ADDR_CUTSCENE_LIST_HEAD) != 0:
+                self.pine.write32(C.ADDR_CUTSCENE_LIST_HEAD, 0)
+                return True
+        except Exception:
+            pass
+        return False
+
     # ── Missions (RECORD) ──
     def read_mission(self, scenario_index: int, mission_index: int) -> int:
         """Return completion value 0/1/2/3 for a mission."""

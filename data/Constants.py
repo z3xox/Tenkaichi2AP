@@ -29,6 +29,15 @@ ADDR_DA_FIGHT_ID      = 0x76BDFC   # per-fight id within a chapter (main vs opti
 ADDR_BATTLE_STATUS    = 0x76BCC0   # 8-bit: 0x00 pending, 0x01 victory, 0x02 defeat, 0x08 surrender
 ADDR_ZENI             = 0x63383C   # [32-bit] Current Zeni -- CONFIRMED (write renders live)
 
+# ── Cutscene auto-skip ──────────────────────────────────────────────────────
+# 0x003B0F00 is the DA in-game-cutscene active-scene list head. It is 0 in the
+# overworld and only becomes nonzero (a heap scene-object pointer) while an
+# in-game-rendered dialogue cutscene is active. Writing 0 removes the active
+# scene -> the game runs its own clean scene-removal -> the cutscene is skipped
+# instantly and transitions out cleanly (same effect as the pause-menu Skip).
+# Self-gating: writing 0 when it's already 0 (overworld) is a harmless no-op.
+ADDR_CUTSCENE_LIST_HEAD = 0x003B0F00   # [32-bit] active in-game-cutscene scene list head
+
 # DeathLink: Player 1's per-character health gauges (32-bit each). Confirmed
 # live in-game: a clean +0x80 stride per teammate from char 1. Zeroing ALL of
 # these forces the whole team to lose (a tagged-in teammate whose slot wasn't

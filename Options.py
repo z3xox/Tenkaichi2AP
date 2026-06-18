@@ -181,6 +181,16 @@ class ShopRestockAmount(Range):
     default = 10
 
 
+class SkipCutscenes(Toggle):
+    """When ON, the client automatically skips in-game Dragon Adventure dialogue
+    cutscenes the instant they start. The game performs its own clean scene
+    removal (the same effect as the in-game pause-menu Skip), so the scenario
+    continues normally afterward. This only affects in-engine dialogue scenes,
+    not pre-rendered FMV movies."""
+    display_name = "Skip Cutscenes"
+    default = 1
+
+
 class ExcludedSagas(OptionSet):
     """Sagas (chapters) to DISABLE. By default this is empty, meaning ALL 24
     sagas are included. List any saga names here to exclude them: their mission
@@ -219,3 +229,4 @@ class BT2Options(PerGameCommonOptions):
     shop_checks: ShopChecks
     shop_initial: ShopInitial
     shop_restock_amount: ShopRestockAmount
+    skip_cutscenes: SkipCutscenes

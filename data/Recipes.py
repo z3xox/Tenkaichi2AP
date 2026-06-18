@@ -90,6 +90,11 @@ RECIPES = {
     # ---- battle-condition unlocks (mission rewards) ----
     "Bardock":                ("BATTLE", "Lord Slug"),
     "Burter":                 ("BATTLE", "Frieza Saga"),
+    # Frieza Final Form is battle-unlocked in the Frieza Saga. It's a leaf-base
+    # for the Full Power Frieza fusion, so it must require unlocking — previously
+    # it had no recipe and was wrongly a free starter, letting Full Power Frieza
+    # fuse without it (same bug class as Baby Vegeta / Vegeta second form).
+    "Frieza Final Form":      ("BATTLE", "Frieza Saga"),
     "Cell 1st Form":          ("BATTLE", "Android Saga"),
     "Cell 2nd Form":          ("BATTLE", "Android Saga"),
     "Cell Perfect Form":      ("BATTLE", "Android Saga"),
@@ -113,6 +118,11 @@ RECIPES = {
     # Evil Buu = Human gunman's gun + Majin Buu.
     "Majin Buu (Pure Evil)":  ("FUSION", ["Human gunman's gun", "Majin Buu"]),
     "Majin Vegeta":           ("BATTLE", "Majin Buu Saga"),
+    # Vegeta (second form) is battle-unlocked in the Majin Buu Saga (Trunks
+    # Trains chapter). It's a leaf-base for the Baby Vegeta fusion, so it must
+    # require unlocking — previously it had no recipe and was wrongly treated as
+    # a free starter, letting Baby Vegeta fuse without it.
+    "Vegeta (second form)":   ("BATTLE", "Majin Buu Saga"),
     "Gotenks":                ("BATTLE", "Majin Buu Saga"),
     "Vegito":                 ("BATTLE", "Majin Buu Saga"),
     "Super Vegito":           ("BATTLE", "Majin Buu Saga"),  # beat Super Buu Gohan in "Savior Appears"

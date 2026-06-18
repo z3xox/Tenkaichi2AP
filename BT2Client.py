@@ -95,6 +95,7 @@ class BT2Context(CommonContext):
         self.fighter_pool = 0           # 0=any, 1=unlocked
         self.disable_giants = 0         # 1=exclude giant fighters from randomizer
         self.death_link = 0             # 1=DeathLink enabled
+        self.skip_cutscenes = 1         # 1=auto-skip in-game dialogue cutscenes
         self._pending_death = False     # incoming death waiting to apply (buffered)
         self._deathlink_caused = False  # our defeat was caused by incoming DL
         self._fight_went_live = False   # observed pending(0x00) while in Battle
@@ -163,6 +164,7 @@ class BT2Context(CommonContext):
             self.fighter_pool = int(self.slot_data.get("fighter_pool", 0))
             self.disable_giants = int(self.slot_data.get("disable_giants", 0))
             self.death_link = int(self.slot_data.get("death_link", 0))
+            self.skip_cutscenes = int(self.slot_data.get("skip_cutscenes", 1))
             self.goal = int(self.slot_data.get("goal", 1))
             self.time_scrolls_required = int(self.slot_data.get("time_scrolls_required", 0))
             self.final_saga = int(self.slot_data.get("final_saga", 20))
@@ -330,6 +332,19 @@ async def game_watcher(ctx: BT2Context):
                 ctx._char_baseline = None
                 ctx._secret_baseline = None
                 continue
+
+            # ── Cutscene auto-skip (run EARLY, every poll) ─────────────────
+            # The active-cutscene list head (0x003B0F00) is 0 in the overworld
+            # and only nonzero while an in-game dialogue cutscene is active.
+            # Zeroing it removes the scene -> the game tears it down cleanly
+            # (same as the pause-menu Skip). Self-gating: a no-op when there's
+            # no cutscene, so this is safe to call on every screen.
+            if getattr(ctx, "skip_cutscenes", 1):
+                try:
+                    if ctx.iface.skip_cutscene():
+                        logger.debug("[BT2] auto-skipped a cutscene")
+                except Exception as e:
+                    logger.debug(f"[BT2] cutscene-skip error: {e}")
 
             # ── DeathLink (run EARLY) ──────────────────────────────────────
             # Handle DeathLink BEFORE the mission-validity guard below, which can
