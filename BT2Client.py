@@ -96,6 +96,13 @@ class BT2Context(CommonContext):
         self.disable_giants = 0         # 1=exclude giant fighters from randomizer
         self.death_link = 0             # 1=DeathLink enabled
         self.skip_cutscenes = 1         # 1=auto-skip in-game dialogue cutscenes
+        self.skip_saves = 0             # 1=auto-dismiss the post-mission save prompt
+        self._save_prev_battle = 0      # for rising-edge victory detection
+        self._save_victory_since = False  # a victory happened since last dismiss?
+        self._save_done = False         # already dismissed this victory's save seq?
+        self._save_seq_active = False   # currently dismissing a save popup sequence?
+        self._save_attempts = 0         # consecutive failed confirm attempts (anti-spam)
+        self._save_saw_popup1 = False    # saw popup1 (0x1C) this victory? (excludes stale 0x2F)
         self._pending_death = False     # incoming death waiting to apply (buffered)
         self._deathlink_caused = False  # our defeat was caused by incoming DL
         self._fight_went_live = False   # observed pending(0x00) while in Battle
@@ -165,6 +172,7 @@ class BT2Context(CommonContext):
             self.disable_giants = int(self.slot_data.get("disable_giants", 0))
             self.death_link = int(self.slot_data.get("death_link", 0))
             self.skip_cutscenes = int(self.slot_data.get("skip_cutscenes", 1))
+            self.skip_saves = int(self.slot_data.get("skip_saves", 0))
             self.goal = int(self.slot_data.get("goal", 1))
             self.time_scrolls_required = int(self.slot_data.get("time_scrolls_required", 0))
             self.final_saga = int(self.slot_data.get("final_saga", 20))
@@ -345,6 +353,53 @@ async def game_watcher(ctx: BT2Context):
                         logger.debug("[BT2] auto-skipped a cutscene")
                 except Exception as e:
                     logger.debug(f"[BT2] cutscene-skip error: {e}")
+
+            # ── Post-mission save-prompt auto-dismiss ──────────────────────
+            # The game commits progress (completion byte + chapter advance)
+            # BEFORE the save popup appears, so we touch NO progress here — we
+            # only dismiss the two popups ("Save Game Data?" then "Exit Saving?")
+            # by confirming them, so the player skips the manual card save.
+            #
+            # Safety: confirm_save_popup writes the pad bit ONLY when a real save
+            # popup is on screen (save_prompt_id checks save-flow + Menu + modal +
+            # the save prompt id), gated further by a VICTORY having occurred since
+            # the last sequence. Outside the popup nothing is written, so the X
+            # press can never reach gameplay. We drive off the live prompt id, so
+            # we always know which popup we're on and see each confirm land.
+            if getattr(ctx, "skip_saves", 0):
+                try:
+                    bs = ctx.iface.read_battle_status()
+                    if bs == C.BATTLE_STATUS_VICTORY and \
+                            getattr(ctx, "_save_prev_battle", 0) != C.BATTLE_STATUS_VICTORY:
+                        ctx._save_victory_since = True
+                        ctx._save_done = False
+                    ctx._save_prev_battle = bs
+
+                    pid = ctx.iface.save_prompt_id()
+                    if (pid is not None
+                            and getattr(ctx, "_save_victory_since", False)
+                            and not getattr(ctx, "_save_done", False)):
+                        if ctx.iface.confirm_save_popup():
+                            # fully dismissed — consume and latch
+                            ctx._save_done = True
+                            ctx._save_victory_since = False
+                            ctx._save_attempts = 0
+                            logger.debug("[BT2] save prompt auto-dismissed")
+                        else:
+                            # didn't clear. The prompt id can stay STALE on later
+                            # screens, which would otherwise make us confirm
+                            # forever. Give up after a few attempts and latch done
+                            # so we stop; the next real victory re-arms us.
+                            ctx._save_attempts = getattr(ctx, "_save_attempts", 0) + 1
+                            if ctx._save_attempts >= 4:
+                                ctx._save_done = True
+                                ctx._save_victory_since = False
+                                ctx._save_attempts = 0
+                                logger.debug("[BT2] save-skip: gave up (stale id)")
+                    else:
+                        ctx._save_attempts = 0
+                except Exception as e:
+                    logger.debug(f"[BT2] save-skip error: {e}")
 
             # ── DeathLink (run EARLY) ──────────────────────────────────────
             # Handle DeathLink BEFORE the mission-validity guard below, which can

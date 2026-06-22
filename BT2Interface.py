@@ -7,6 +7,7 @@ Supported version:
 """
 import os
 import socket
+import time
 from platform import system
 from typing import Optional
 from logging import Logger
@@ -182,6 +183,78 @@ class BT2Interface:
         except Exception:
             pass
         return False
+
+    # ── Post-mission save-prompt auto-skip ──
+    def save_prompt_id(self) -> int:
+        """Return the active save-popup prompt id IF a real save popup is up,
+        else None. A save popup requires ALL gates: save-flow active
+        (0x3B26B0==2), Menu screen (0x76BD18==0), modal state (0x76BD1C==0x10),
+        a valid Dragon Adventure map location (0x387AB8 != 0 — this is what
+        excludes the post-saga SCENARIO-SELECT screen, where every other value
+        coincides but the map reads 0), and the prompt id being one of the two
+        save popups. Returns the id (0x1C "Save Game Data?" / 0x2F "Exit
+        Saving?") or None."""
+        try:
+            if self.pine.read32(C.ADDR_SAVE_TRANS) != C.SAVE_TRANS_ACTIVE:
+                return None
+            if self.pine.read8(C.ADDR_SCREEN_TYPE_DL) != C.SCREEN_DL_MENU:
+                return None
+            if self.pine.read8(C.ADDR_SCREEN_STATE) != C.SCREEN_STATE_MODAL:
+                return None
+            if self.pine.read16(C.ADDR_DA_MAP_LOCATION) == 0:
+                return None  # not on a map (scenario-select) -> not a real popup
+            pid = self.pine.read8(C.ADDR_SAVE_PROMPT_ID)
+            if pid in (C.PROMPT_SAVE_DATA, C.PROMPT_EXIT_SAVING):
+                return pid
+        except Exception:
+            pass
+        return None
+
+    def confirm_save_popup(self) -> bool:
+        """Dismiss the currently-showing save popup(s) WITHOUT a card write,
+        picking the correct option for whichever popup is up. Returns True only
+        if a save popup was dismissed (the prompt actually cleared/changed), so
+        the caller never latches 'done' on a confirm that didn't land.
+
+        We force the cursor to our choice and pulse the X confirm (open loop):
+        each step writes the cursor IMMEDIATELY before the X so the option is our
+        value on the frame the press is read, and repeats so it lands on the
+        game's input-poll frame. We re-read the prompt id each step so we target
+        the right option for the popup actually on screen and stop as soon as the
+        popups are gone. Only ever called while a real save popup is up, so the
+        pad write can't reach gameplay."""
+        start_pid = self.save_prompt_id()
+        if start_pid is None:
+            return False
+        try:
+            misses = 0
+            for _ in range(20):
+                pid = self.save_prompt_id()
+                if pid is None:
+                    # Could be fully done, OR a transient gap between popup1
+                    # closing and popup2 appearing. Confirm it's really clear by
+                    # requiring two consecutive misses before stopping.
+                    misses += 1
+                    if misses >= 2:
+                        break
+                    time.sleep(0.016)
+                    continue
+                misses = 0
+                want = (C.SAVE_POPUP1_CURSOR if pid == C.PROMPT_SAVE_DATA
+                        else C.SAVE_POPUP2_CURSOR)
+                # write cursor twice (settle), then X — cursor is our value on
+                # the confirm frame, fixing the occasional wrong-option pick.
+                self.pine.write8(C.ADDR_SAVE_CURSOR, want)
+                self.pine.write8(C.ADDR_SAVE_CURSOR, want)
+                self.pine.write8(C.ADDR_SAVE_PAD, C.SAVE_PAD_CONFIRM)
+                time.sleep(0.016)
+        except Exception:
+            pass
+        # success ONLY when no save popup remains. Returning True merely because
+        # the prompt CHANGED (e.g. popup1 0x1C -> popup2 0x2F) would let the
+        # caller latch 'done' while popup2 is still up, getting stuck on it. So
+        # we report success only when fully clear; otherwise the caller retries.
+        return self.save_prompt_id() is None
 
     # ── Missions (RECORD) ──
     def read_mission(self, scenario_index: int, mission_index: int) -> int:

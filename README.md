@@ -58,10 +58,6 @@ Dragon Adventure missions, character unlocks, secret what-if sagas, and Dragon B
 ## Fighter randomizer
 With `randomize_fighters` on, Dragon Adventure matchups are shuffled — your team and/or the enemy team. It's deterministic per mission (the same fight always randomizes the same way for a given seed) and cosmetic only: it never affects checks or logic.
 
-## Known limitations
-- Shop checks/control are not yet implemented (Zeni currency address unconfirmed).
-- Some unlocks may need one normal in-game save to persist into menus.
-- The fresh-save starting roster is still being finalized; default-unlocked characters are suppressed from firing spurious checks on boot.
 
 ## Troubleshooting
 - *Client can't find game* → check PCSX2 is running Budokai Tenkaichi 2 (CRC `FE961D28`) with PINE enabled.

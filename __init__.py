@@ -279,5 +279,6 @@ class BT2World(World):
             "shop_initial": self.options.shop_initial.value,
             "shop_restock_amount": self.options.shop_restock_amount.value,
             "skip_cutscenes": self.options.skip_cutscenes.value,
+            "skip_saves": self.options.skip_saves.value,
             "seed": self.multiworld.seed_name,
         }

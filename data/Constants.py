@@ -62,6 +62,45 @@ SCREEN_DL_DA_NAV = 0x08
 
 SCREEN_DA_MAP = 0x07               # safe-to-write value for DA flags
 
+# ── Post-mission SAVE-PROMPT auto-skip ──────────────────────────────────────
+# After a main mission the game shows two modal popups ("Save Game Data?" then
+# "Exit Saving?"). The game has ALREADY committed progress (chapter advance +
+# completion byte) by the time the first popup is on screen, so we never touch
+# progress — we only dismiss the two popups the game's own way (by confirming
+# them) so the player skips the manual save without a memory-card write.
+#
+# Detection gates (ALL must hold, so we never act outside the real save popup):
+ADDR_SAVE_TRANS    = 0x003B26B0    # [32-bit] save-flow state; == 2 while the flow is active
+ADDR_SCREEN_STATE  = 0x0076BD1C    # [8-bit]  == 0x10 while a modal dialog is up
+SAVE_TRANS_ACTIVE  = 0x02
+SCREEN_STATE_MODAL = 0x10
+# The two popups share one dialog struct; the prompt id says which is showing:
+ADDR_SAVE_PROMPT_ID = 0x010C49DC   # [8-bit] 0x1C = "Save Game Data?", 0x2F = "Exit Saving?"
+PROMPT_SAVE_DATA    = 0x1C
+PROMPT_EXIT_SAVING  = 0x2F
+# The dialog cursor (which option is highlighted). We force it to our choice
+# each frame so the outcome is deterministic regardless of player input.
+ADDR_SAVE_CURSOR    = 0x010C49D8    # [8-bit] 1 = No highlighted, 0 = Yes highlighted
+SAVE_CURSOR_NO  = 1
+SAVE_CURSOR_YES = 0
+# The pad buffer the dialog reads. Confirm = Cross/X (bit 0x40, active-low):
+# idle 0xFF -> press X = 0xBF. We only ever write this while the gates above
+# hold (i.e. only inside the save popup), so it can never bleed into gameplay.
+ADDR_SAVE_PAD   = 0x003B0B1D
+SAVE_PAD_IDLE   = 0xFF
+SAVE_PAD_CONFIRM = 0xBF             # X pressed (0x40 bit cleared)
+# Our per-popup choices: don't save (No) on popup 1, exit-without-saving (Yes)
+# on popup 2.
+SAVE_POPUP1_CURSOR = SAVE_CURSOR_NO    # "Save Game Data?" -> No
+SAVE_POPUP2_CURSOR = SAVE_CURSOR_YES   # "Exit Saving?"    -> Yes
+# Discriminator vs the post-saga SCENARIO-SELECT screen. Every other gate value
+# (save trans, screen type, modal state, and even the prompt id) is identical
+# at scenario-select because the prompt id lingers stale. The clean tell is the
+# Dragon Adventure MAP location (ADDR_DA_MAP_LOCATION, defined below): a real
+# post-mission save popup happens while you are ON a map (a valid nonzero map
+# id, e.g. 0x09CB), whereas scenario-select is a menu with no map (reads 0). So
+# we require a nonzero map.
+
 # ─────────────────────────────────────────────
 #  Dragon Adventure fight array (RECORD)
 #  Contiguous, 1 byte per mission, base 0x63100C.

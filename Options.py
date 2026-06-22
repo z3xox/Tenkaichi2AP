@@ -191,6 +191,21 @@ class SkipCutscenes(Toggle):
     default = 1
 
 
+class SkipSaves(Toggle):
+    """When ON, the client automatically dismisses the post-mission save prompt
+    ("Save Game Data?" / "Exit Saving?") so you don't have to confirm it after
+    every mission. The game commits your progress (mission completion + the next
+    mission unlock) BEFORE the prompt appears, so nothing is lost — only the
+    memory-card write is skipped. The client confirms the prompts the game's own
+    way and only ever acts while the save prompt is actually on screen.
+
+    Note: because the memory-card write is skipped, in-game progress is not
+    persisted to the card, so it is lost on reboot. Your Archipelago checks are
+    safe (tracked server-side). Turn this OFF if you want normal saving."""
+    display_name = "Skip Save Prompt"
+    default = 0
+
+
 class ExcludedSagas(OptionSet):
     """Sagas (chapters) to DISABLE. By default this is empty, meaning ALL 24
     sagas are included. List any saga names here to exclude them: their mission
@@ -230,3 +245,4 @@ class BT2Options(PerGameCommonOptions):
     shop_initial: ShopInitial
     shop_restock_amount: ShopRestockAmount
     skip_cutscenes: SkipCutscenes
+    skip_saves: SkipSaves
